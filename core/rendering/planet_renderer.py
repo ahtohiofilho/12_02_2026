@@ -1,0 +1,671 @@
+import numpy as np
+import OpenGL.GL as gl
+import glm
+# from .civ_icon import CivIcon  # Comentado por enquanto
+# from .color_picking import PickingSystem # Comentado por enquanto
+# from .tile_units_renderer import TileUnitsRenderer # Comentado por enquanto
+
+class PlanetRenderer:
+    def __init__(self, controller):
+        print(f"🔴 PlanetRenderer.__init__ chamado! ID: {id(self)}")
+        self.vao = None
+        self.vbo_vertices = None
+        self.vbo_tile_indices = None
+        self.ebo_indices = None
+        self.index_count = 0
+        self.shader_program = 0
+        self.tile_coords_to_index = {}
+        self.tile_colors = {}
+        self.all_vertices = np.array([])
+        self.all_indices = np.array([], dtype=np.uint32)
+        self.all_tile_indices = np.array([], dtype=np.uint32)
+        self.initializado = False
+        self.dados_atualizados = False
+        #self.civ_icon_renderer = CivIcon()
+        #self.picking_system = None
+        self.controller = controller
+
+        # Renderer unificado de unidades (militares + trabalhadores)
+        #self.tile_units_renderer = TileUnitsRenderer(controller)
+        #print(f"🔴 TileUnitsRenderer criado com ID: {id(self.tile_units_renderer)}")
+
+        # Recursos para highlight
+        self.highlight_shader_program = 0
+        self.highlight_initialized = False
+        self._highlight_cache = {
+            'tile_coords': None,
+            'vao': None,
+            'vbo': None,
+            'vertex_count': 0
+        }
+
+        # Shader principal do planeta
+        self.vertex_shader_source = """
+        #version 330 core
+        layout (location = 0) in vec3 aPos;
+        layout (location = 1) in uint aTileIndex;
+
+        uniform mat4 uModel;
+        uniform mat4 uView;
+        uniform mat4 uProjection;
+
+        flat out uint tileIndex;
+
+        void main()
+        {
+            gl_Position = uProjection * uView * uModel * vec4(aPos, 1.0);
+            tileIndex = aTileIndex;
+        }
+        """
+
+        self.fragment_shader_source = """
+        #version 330 core
+        out vec4 FragColor;
+
+        uniform sampler1D uTileColorTexture;
+        uniform int uNumTiles;
+
+        flat in uint tileIndex;
+
+        void main()
+        {
+            if (int(tileIndex) >= uNumTiles || int(tileIndex) < 0) {
+                FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+                return;
+            }
+
+            float texCoord = (float(tileIndex) + 0.5) / float(uNumTiles);
+            FragColor = vec4(texture(uTileColorTexture, texCoord).rgb, 1.0);
+        }
+        """
+
+        # Shaders para highlight
+        self.highlight_vertex_shader_source = """
+        #version 330 core
+        layout (location = 0) in vec3 aPos;
+
+        uniform mat4 uModel;
+        uniform mat4 uView;
+        uniform mat4 uProjection;
+
+        void main()
+        {
+            // Levanta ligeiramente para evitar z-fighting
+            vec3 pos = aPos * 1.003;
+            gl_Position = uProjection * uView * uModel * vec4(pos, 1.0);
+        }
+        """
+
+        self.highlight_fragment_shader_source = """
+        #version 330 core
+        out vec4 FragColor;
+
+        uniform vec4 uHighlightColor;
+
+        void main()
+        {
+            FragColor = uHighlightColor;
+        }
+        """
+
+    def set_controller(self, controller):
+        """Define a referência ao controller"""
+        self.controller = controller
+        print(f"[PlanetRenderer] Controller referenciado: {controller is not None}")
+
+    def set_tile_data(self, coord_vert, centros_3d_tiles):
+        print(f"[PlanetRenderer.set_tile_data] Processando dados com abordagem corrigida")
+        self.coord_vert = coord_vert
+        self.centros_3d_tiles = centros_3d_tiles
+
+        all_vertices_list = []
+        all_indices_list = []
+        all_tile_indices_list = []
+        current_global_index = 0
+        tile_index_counter = 0
+
+        # Criar mapeamento coordenada -> índice DE UMA VEZ
+        sorted_coords = sorted(coord_vert.keys())
+        self.tile_coords_to_index = {coords: idx for idx, coords in enumerate(sorted_coords)}
+
+        for coords in sorted_coords:
+            vertices_np = coord_vert[coords]
+            if not hasattr(vertices_np, 'size') or vertices_np.size == 0:
+                continue
+
+            current_tile_index = self.tile_coords_to_index[coords]
+            num_vertices = len(vertices_np)
+
+            # --- CORREÇÃO: Processar todos os vértices do tile de uma vez ---
+            start_index = current_global_index
+            for vertex in vertices_np:
+                all_vertices_list.append(vertex)
+                all_tile_indices_list.append(current_tile_index)  # Índice CORRETO para este tile
+                current_global_index += 1
+
+            # Gerar índices de triângulo (fã)
+            for i in range(1, num_vertices - 1):
+                all_indices_list.extend([
+                    start_index,
+                    start_index + i,
+                    start_index + i + 1
+                ])
+
+        self.all_vertices = np.array(all_vertices_list, dtype=np.float32).flatten()
+        self.all_indices = np.array(all_indices_list, dtype=np.uint32)
+        self.all_tile_indices = np.array(all_tile_indices_list, dtype=np.uint32)
+        self.index_count = len(self.all_indices)
+
+        if len(all_vertices_list) != len(all_tile_indices_list):
+            print(
+                f"❌ ERRO CRÍTICO: Número de vértices ({len(all_vertices_list)}) != número de índices de tile ({len(all_tile_indices_list)})")
+        else:
+            print("✅ Estrutura de dados consistente")
+
+        return True
+
+    def set_civilization_data(self, planeta):
+        """Configura os dados das civilizações para o renderizador de ícones"""
+        if hasattr(self, 'centros_3d_tiles'):
+            self.civ_icon_renderer.set_civilization_data(planeta, self.centros_3d_tiles)
+
+    def set_tile_colors(self, tile_colors_dict):
+        """Recebe um dicionário mapeando coordenadas de tile para cores [R, G, B]."""
+        self.tile_colors = tile_colors_dict
+
+        num_tiles = len(self.tile_coords_to_index)
+
+        if num_tiles == 0:
+            print("[PlanetRenderer] Aviso: Nenhum tile para definir cores.")
+            return
+
+        sorted_colors = []
+        for coords in sorted(self.tile_coords_to_index.keys()):
+            color = tile_colors_dict.get(coords, [127.0, 127.0, 127.0])
+            color_normalized = [c / 255.0 for c in color]
+            sorted_colors.extend(color_normalized)
+
+        color_array = np.array(sorted_colors, dtype=np.float32).reshape((num_tiles, 3))
+        self.tile_color_texture_data = color_array
+
+    def needs_init(self):
+        """Verifica se init_gl precisa ser chamado."""
+        return not self.initializado or self.dados_atualizados
+
+    def init_gl(self):
+        """
+        Inicializa os recursos OpenGL: shaders, VAO, VBOs, EBO, Textura de Cores, Highlight.
+        Retorna True se bem-sucedido, False caso contrário.
+        """
+        print("\n" + "=" * 50)
+        print(f"🔧 PlanetRenderer.init_gl INICIADO (ID: {id(self)})")
+
+        # Resetar estado para garantir inicialização limpa
+        self.initializado = False
+        self.dados_atualizados = False
+
+        # Verificação crítica de dados ANTES de qualquer operação OpenGL
+        if len(self.all_vertices) == 0:
+            print("❌ ERRO CRÍTICO: all_vertices VAZIO!")
+            return False
+
+        if len(self.all_indices) == 0:
+            print("❌ ERRO CRÍTICO: all_indices VAZIO!")
+            return False
+
+        print(f"  Total de vértices: {len(self.all_vertices) // 3} ({(len(self.all_vertices) // 3):,})")
+        print(f"  Total de índices: {len(self.all_indices):,}")
+        print(f"  Total de tiles: {len(self.tile_coords_to_index)}")
+
+        try:
+            # Limpeza se já foi inicializado anteriormente
+            if self.initializado:
+                self.cleanup_gl()
+
+            # === SHADER PRINCIPAL DO PLANETA ===
+            vertex_shader = self.compile_shader(self.vertex_shader_source, gl.GL_VERTEX_SHADER)
+            fragment_shader = self.compile_shader(self.fragment_shader_source, gl.GL_FRAGMENT_SHADER)
+
+            if vertex_shader == 0 or fragment_shader == 0:
+                print("❌ Falha ao compilar shaders básicos")
+                return False
+
+            self.shader_program = gl.glCreateProgram()
+            gl.glAttachShader(self.shader_program, vertex_shader)
+            gl.glAttachShader(self.shader_program, fragment_shader)
+            gl.glLinkProgram(self.shader_program)
+
+            success = gl.glGetProgramiv(self.shader_program, gl.GL_LINK_STATUS)
+            if not success:
+                info_log = gl.glGetProgramInfoLog(self.shader_program)
+                print(f"❌ Erro ao linkar shader principal: {info_log}")
+                gl.glDeleteProgram(self.shader_program)
+                self.shader_program = 0
+                return False
+            else:
+                print(f"✅ Shader principal compilado (ID={self.shader_program})")
+
+            gl.glDeleteShader(vertex_shader)
+            gl.glDeleteShader(fragment_shader)
+
+            # Cache de uniform locations
+            self.uniform_locations = {
+                'uView': gl.glGetUniformLocation(self.shader_program, "uView"),
+                'uProjection': gl.glGetUniformLocation(self.shader_program, "uProjection"),
+                'uModel': gl.glGetUniformLocation(self.shader_program, "uModel"),
+                'uNumTiles': gl.glGetUniformLocation(self.shader_program, "uNumTiles"),
+                'uTileColorTexture': gl.glGetUniformLocation(self.shader_program, "uTileColorTexture")
+            }
+
+            # Verificação de uniforms
+            uniform_errors = 0
+            for uniform_name, location in self.uniform_locations.items():
+                if location == -1:
+                    print(f"⚠️ Uniform não encontrado: '{uniform_name}'")
+                    uniform_errors += 1
+
+            if uniform_errors > 0:
+                print(f"⚠️ {uniform_errors} uniforms não encontrados")
+
+            # === VAO E BUFFERS ===
+            self.vao = gl.glGenVertexArrays(1)
+            gl.glBindVertexArray(self.vao)
+
+            # VBO para vértices
+            self.vbo_vertices = gl.glGenBuffers(1)
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_vertices)
+            gl.glBufferData(gl.GL_ARRAY_BUFFER, self.all_vertices.nbytes, self.all_vertices, gl.GL_STATIC_DRAW)
+            gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
+            gl.glEnableVertexAttribArray(0)
+
+            # VBO para índices de tile
+            self.vbo_tile_indices = gl.glGenBuffers(1)
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_tile_indices)
+            gl.glBufferData(gl.GL_ARRAY_BUFFER, self.all_tile_indices.nbytes, self.all_tile_indices, gl.GL_STATIC_DRAW)
+            gl.glVertexAttribIPointer(1, 1, gl.GL_UNSIGNED_INT, 0, None)
+            gl.glEnableVertexAttribArray(1)
+
+            # EBO para índices de elementos
+            self.ebo_indices = gl.glGenBuffers(1)
+            gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.ebo_indices)
+            gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, self.all_indices.nbytes, self.all_indices, gl.GL_STATIC_DRAW)
+
+            # === TEXTURA DE CORES ===
+            self.tile_color_texture = gl.glGenTextures(1)
+            gl.glActiveTexture(gl.GL_TEXTURE0)
+            gl.glBindTexture(gl.GL_TEXTURE_1D, self.tile_color_texture)
+
+            gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_WRAP_S, gl.GL_CLAMP_TO_EDGE)
+            gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
+            gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
+
+            if hasattr(self, 'tile_color_texture_data') and self.tile_color_texture_data is not None:
+                num_colors = self.tile_color_texture_data.shape[0]
+                gl.glTexImage1D(gl.GL_TEXTURE_1D, 0, gl.GL_RGB32F, num_colors, 0, gl.GL_RGB, gl.GL_FLOAT,
+                                self.tile_color_texture_data)
+                print(f"✅ Textura de cores carregada ({num_colors} cores)")
+            else:
+                dummy_color = np.array([0.5, 0.5, 0.5], dtype=np.float32)
+                gl.glTexImage1D(gl.GL_TEXTURE_1D, 0, gl.GL_RGB32F, 1, 0, gl.GL_RGB, gl.GL_FLOAT, dummy_color)
+                print("⚠️ Textura de cores dummy carregada")
+
+            # === SHADER DE HIGHLIGHT ===
+            self._init_highlight_shader()
+
+            # === VERIFICAÇÃO DE ERROS OPENGL ===
+            error = gl.glGetError()
+            if error != gl.GL_NO_ERROR:
+                print(f"⚠️ Erro OpenGL pós-inicialização: {error}")
+            else:
+                print("✅ Recursos OpenGL criados sem erros")
+
+            # Atualização FINAL do estado
+            self.initializado = True
+            self.dados_atualizados = False
+            print("✅ PlanetRenderer.init_gl concluído com sucesso")
+            return True
+
+        except Exception as e:
+            print(f"💥 ERRO CRÍTICO durante init_gl: {e}")
+            import traceback
+            traceback.print_exc()
+            self.cleanup_gl()
+            self.initializado = False
+            return False
+
+    def _init_highlight_shader(self):
+        """Inicializa o shader para highlight de tiles."""
+        try:
+            vertex_shader = self.compile_shader(
+                self.highlight_vertex_shader_source,
+                gl.GL_VERTEX_SHADER
+            )
+            fragment_shader = self.compile_shader(
+                self.highlight_fragment_shader_source,
+                gl.GL_FRAGMENT_SHADER
+            )
+
+            if vertex_shader == 0 or fragment_shader == 0:
+                print("⚠️ [PlanetRenderer] Falha ao compilar shaders de highlight")
+                return
+
+            self.highlight_shader_program = gl.glCreateProgram()
+            gl.glAttachShader(self.highlight_shader_program, vertex_shader)
+            gl.glAttachShader(self.highlight_shader_program, fragment_shader)
+            gl.glLinkProgram(self.highlight_shader_program)
+
+            success = gl.glGetProgramiv(self.highlight_shader_program, gl.GL_LINK_STATUS)
+            if not success:
+                info_log = gl.glGetProgramInfoLog(self.highlight_shader_program)
+                print(f"❌ [PlanetRenderer] Erro ao linkar shader de highlight: {info_log}")
+                gl.glDeleteProgram(self.highlight_shader_program)
+                self.highlight_shader_program = 0
+                return
+
+            gl.glDeleteShader(vertex_shader)
+            gl.glDeleteShader(fragment_shader)
+
+            self.highlight_uniform_locations = {
+                'uView': gl.glGetUniformLocation(self.highlight_shader_program, "uView"),
+                'uProjection': gl.glGetUniformLocation(self.highlight_shader_program, "uProjection"),
+                'uModel': gl.glGetUniformLocation(self.highlight_shader_program, "uModel"),
+                'uHighlightColor': gl.glGetUniformLocation(self.highlight_shader_program, "uHighlightColor"),
+            }
+
+            self.highlight_initialized = True
+            print("✅ [PlanetRenderer] Shader de highlight inicializado")
+
+        except Exception as e:
+            print(f"❌ [PlanetRenderer] Erro ao inicializar highlight: {e}")
+            self.highlight_initialized = False
+
+    def compile_shader(self, source, shader_type):
+        """Compila um shader GLSL com verificação rigorosa."""
+        shader = gl.glCreateShader(shader_type)
+        if shader == 0:
+            print(f"❌ ERRO: Não foi possível criar shader do tipo {shader_type}")
+            return 0
+
+        gl.glShaderSource(shader, source)
+        gl.glCompileShader(shader)
+
+        success = gl.glGetShaderiv(shader, gl.GL_COMPILE_STATUS)
+        if not success:
+            info_log = gl.glGetShaderInfoLog(shader).decode()
+            print(f"❌ ERRO ao compilar Shader ({shader_type}):\n{info_log}")
+            gl.glDeleteShader(shader)
+            return 0
+
+        return shader
+
+    def render(self, view_matrix, projection_matrix, camera_position=None, camera_up=None,
+               hover_highlight_tile=None):
+        """
+        Renderização do planeta com a matemática das matrizes corrigida.
+        """
+        # Verificação de inicialização
+        if not self.initializado:
+            if self.dados_atualizados:
+                self.init_gl()
+            if not self.initializado:
+                print("⚠️ Renderização abortada: renderizador não inicializado")
+                return
+
+        print("\n" + "=" * 50)
+        print(f"🔧 PlanetRenderer.render (ID: {id(self)})")
+
+        # DEBUG 1: Geometria do planeta
+        vertices = self.all_vertices.reshape(-1, 3)
+        min_coords = vertices.min(axis=0)
+        max_coords = vertices.max(axis=0)
+        center = vertices.mean(axis=0)
+        print(f"📐 Geometria:")
+        print(f"  Bounding Box: Min={min_coords} | Max={max_coords}")
+        print(f"  Centro geométrico: {center}")
+        print(f"  Raio aproximado: {np.linalg.norm(max_coords):.2f}")
+
+        # DEBUG 2: Parâmetros da câmera
+        camera = self.controller.window.scene.camera
+        print(f"📷 Câmera:")
+        print(f"  Posição: {camera.position}")
+        print(f"  Distância: {camera.distance}")
+        print(f"  Near plane: {camera.near} | Far plane: {camera.far}")
+        print(f"  FOV: {camera.fov}° | Aspect ratio: {camera.aspect_ratio}")
+
+        # === RENDERIZAÇÃO PRINCIPAL ===
+        gl.glUseProgram(self.shader_program)
+        gl.glBindVertexArray(self.vao)
+        gl.glActiveTexture(gl.GL_TEXTURE0)
+        gl.glBindTexture(gl.GL_TEXTURE_1D, self.tile_color_texture)
+
+        # Matriz de modelo
+        model_matrix = glm.mat4(1.0)
+
+        # Transposição das matrizes (correção para OpenGL)
+        view_matrix_t = view_matrix.T
+        projection_matrix_t = projection_matrix.T
+
+        # DEBUG 3: Verificação das matrizes
+        print("🧮 Matriz View:")
+        print(f"  Original:\n{view_matrix}")
+        print(f"  Transposta:\n{view_matrix_t}")
+
+        print("🧮 Matriz Projection:")
+        print(f"  Original:\n{projection_matrix}")
+        print(f"  Transposta:\n{projection_matrix_t}")
+
+        print("🧮 Matriz Model (identidade):")
+        print(glm.value_ptr(model_matrix))
+
+        # Passar matrizes para o shader
+        gl.glUniformMatrix4fv(self.uniform_locations['uView'], 1, gl.GL_FALSE, view_matrix_t)
+        gl.glUniformMatrix4fv(
+            self.uniform_locations['uProjection'],
+            1,
+            gl.GL_FALSE,
+            projection_matrix  # ← Usar a matriz original
+        )
+        gl.glUniformMatrix4fv(self.uniform_locations['uModel'], 1, gl.GL_FALSE, glm.value_ptr(model_matrix))
+        gl.glUniform1i(self.uniform_locations['uNumTiles'], len(self.tile_coords_to_index))
+        gl.glUniform1i(self.uniform_locations['uTileColorTexture'], 0)
+
+        # Chamada de renderização
+        print(f"🎬 Chamando glDrawElements: {self.index_count} índices")
+        gl.glDrawElements(gl.GL_TRIANGLES, self.index_count, gl.GL_UNSIGNED_INT, None)
+        gl.glBindVertexArray(0)
+
+        # Verificação de erros OpenGL
+        error = gl.glGetError()
+        print(f"🔍 OpenGL error: {error} (0 = GL_NO_ERROR)")
+
+        # Highlight de tile (se aplicável)
+        if hover_highlight_tile is not None:
+            print(f"✨ Renderizando highlight no tile {hover_highlight_tile}")
+            self._render_tile_highlight(
+                hover_highlight_tile,
+                view_matrix,
+                projection_matrix,
+                color=(1.0, 0.843, 0.0, 0.5)
+            )
+
+        print("=" * 50 + "\n")
+
+    def _render_tile_highlight(self, tile_coords, view_matrix, projection_matrix,
+                               color=(1.0, 0.843, 0.0, 0.5)):
+        """
+        Renderiza um highlight visual em um tile específico.
+        Usa cache para evitar recriar VAO/VBO a cada frame.
+        """
+        if not self.highlight_initialized or self.highlight_shader_program == 0:
+            return
+
+        if tile_coords not in self.tile_coords_to_index:
+            return
+
+        cache = self._highlight_cache
+
+        # Verificar se precisa atualizar o cache
+        if cache['tile_coords'] != tile_coords:
+            # Limpar cache antigo
+            if cache['vao'] is not None:
+                gl.glDeleteVertexArrays(1, [cache['vao']])
+                cache['vao'] = None
+            if cache['vbo'] is not None:
+                gl.glDeleteBuffers(1, [cache['vbo']])
+                cache['vbo'] = None
+
+            # Criar nova geometria
+            tile_index = self.tile_coords_to_index[tile_coords]
+
+            # Encontrar vértices deste tile
+            vertex_indices = []
+            for i, ti in enumerate(self.all_tile_indices):
+                if ti == tile_index:
+                    vertex_indices.append(i)
+
+            if len(vertex_indices) < 3:
+                cache['tile_coords'] = None
+                cache['vertex_count'] = 0
+                return
+
+            # Extrair vértices
+            tile_vertices = []
+            for vi in vertex_indices:
+                base = vi * 3
+                if base + 2 < len(self.all_vertices):
+                    tile_vertices.extend([
+                        self.all_vertices[base],
+                        self.all_vertices[base + 1],
+                        self.all_vertices[base + 2]
+                    ])
+
+            if len(tile_vertices) < 9:
+                cache['tile_coords'] = None
+                cache['vertex_count'] = 0
+                return
+
+            tile_vertices_np = np.array(tile_vertices, dtype=np.float32)
+
+            # Criar VAO/VBO
+            cache['vao'] = gl.glGenVertexArrays(1)
+            cache['vbo'] = gl.glGenBuffers(1)
+
+            gl.glBindVertexArray(cache['vao'])
+            gl.glBindBuffer(gl.GL_ARRAY_BUFFER, cache['vbo'])
+            gl.glBufferData(gl.GL_ARRAY_BUFFER, tile_vertices_np.nbytes,
+                            tile_vertices_np, gl.GL_STATIC_DRAW)
+
+            gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
+            gl.glEnableVertexAttribArray(0)
+
+            gl.glBindVertexArray(0)
+
+            cache['tile_coords'] = tile_coords
+            cache['vertex_count'] = len(tile_vertices_np) // 3
+
+        # Renderizar usando cache
+        if cache['vao'] is None or cache['vertex_count'] < 3:
+            return
+
+        # Configurar estado OpenGL para transparência
+        gl.glEnable(gl.GL_BLEND)
+        gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
+        gl.glDepthMask(gl.GL_FALSE)
+        gl.glDisable(gl.GL_CULL_FACE)
+
+        gl.glUseProgram(self.highlight_shader_program)
+        gl.glBindVertexArray(cache['vao'])
+
+        model_matrix = glm.mat4(1.0)
+        model_matrix = glm.scale(model_matrix, glm.vec3(-1.0, 1.0, 1.0))
+
+        gl.glUniformMatrix4fv(self.highlight_uniform_locations['uView'],
+                              1, gl.GL_FALSE, view_matrix.T)
+        gl.glUniformMatrix4fv(self.highlight_uniform_locations['uProjection'],
+                              1, gl.GL_FALSE, projection_matrix.T)
+        gl.glUniformMatrix4fv(self.highlight_uniform_locations['uModel'],
+                              1, gl.GL_FALSE, glm.value_ptr(model_matrix))
+        gl.glUniform4f(self.highlight_uniform_locations['uHighlightColor'],
+                       color[0], color[1], color[2], color[3])
+
+        gl.glDrawArrays(gl.GL_TRIANGLE_FAN, 0, cache['vertex_count'])
+
+        # Restaurar estado OpenGL
+        gl.glBindVertexArray(0)
+        gl.glDepthMask(gl.GL_TRUE)
+        gl.glEnable(gl.GL_CULL_FACE)
+        gl.glDisable(gl.GL_BLEND)
+
+    def get_tile_at_pixel(self, x, y, widget_width, widget_height):
+        """Interface para o sistema de picking"""
+        if (hasattr(self, 'picking_system') and
+                self.picking_system is not None and
+                self.picking_system.initialized):
+            return self.picking_system.get_tile_at_pixel(x, y, widget_width, widget_height)
+        else:
+            print("⚠️ [PlanetRenderer] PickingSystem não disponível")
+        return None
+
+    def get_tile_info(self, coords):
+        """Interface para obter informações do tile"""
+        if hasattr(self, 'picking_system') and self.picking_system is not None:
+            return self.picking_system.get_tile_info(coords)
+        return None
+
+    def cleanup_gl(self):
+        """Limpa os recursos OpenGL (VAO, VBOs, EBO, Shaders, Texturas, Highlight)."""
+        # Recursos principais
+        if self.vao:
+            gl.glDeleteVertexArrays(1, [self.vao])
+            self.vao = None
+        if self.vbo_vertices:
+            gl.glDeleteBuffers(1, [self.vbo_vertices])
+            self.vbo_vertices = None
+        if self.vbo_tile_indices:
+            gl.glDeleteBuffers(1, [self.vbo_tile_indices])
+            self.vbo_tile_indices = None
+        if self.ebo_indices:
+            gl.glDeleteBuffers(1, [self.ebo_indices])
+            self.ebo_indices = None
+        if hasattr(self, 'tile_color_texture') and self.tile_color_texture:
+            gl.glDeleteTextures(1, [self.tile_color_texture])
+            self.tile_color_texture = None
+        if self.shader_program:
+            gl.glDeleteProgram(self.shader_program)
+            self.shader_program = 0
+
+        # Recursos do highlight
+        if self.highlight_shader_program:
+            gl.glDeleteProgram(self.highlight_shader_program)
+            self.highlight_shader_program = 0
+
+        # Cache do highlight
+        cache = self._highlight_cache
+        if cache['vao'] is not None:
+            gl.glDeleteVertexArrays(1, [cache['vao']])
+        if cache['vbo'] is not None:
+            gl.glDeleteBuffers(1, [cache['vbo']])
+        self._highlight_cache = {
+            'tile_coords': None,
+            'vao': None,
+            'vbo': None,
+            'vertex_count': 0
+        }
+        self.highlight_initialized = False
+
+        # Sub-renderers
+        if hasattr(self, 'picking_system') and self.picking_system:
+            self.picking_system.cleanup()
+            self.picking_system = None
+
+        if hasattr(self, 'civ_icon_renderer'):
+            #self.civ_icon_renderer.cleanup()
+            pass
+
+        # Tile Units Renderer (unificado)
+        if hasattr(self, 'tile_units_renderer'):
+            #self.tile_units_renderer.cleanup()
+            pass
+
+        self.initializado = False
+        print("🧹 [PlanetRenderer] Recursos limpos")
