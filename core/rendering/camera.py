@@ -81,13 +81,15 @@ class Camera:
         self._update_position()
 
     def get_view_matrix(self):
-        # Correção: Garantir que a câmera olhe para a origem
-        view = glm.lookAt(
-            glm.vec3(self.position),
-            glm.vec3(0, 0, 0),  # Foco na origem
-            glm.vec3(self.up)
-        )
-        return np.array(view)
+        if self._view_dirty or self._view_matrix is None:
+            view = glm.lookAt(
+                glm.vec3(self.position),
+                glm.vec3(0, 0, 0),
+                glm.vec3(self.up)
+            )
+            self._view_matrix = np.array(view)
+            self._view_dirty = False
+        return self._view_matrix
 
     def _calculate_view_matrix_lookat(self):
         """Cálculo de matriz de view usando uma abordagem 'lookAt' manual"""
@@ -109,17 +111,16 @@ class Camera:
         return rotation @ translation
 
     def get_projection_matrix(self):
-        # GLM usa perspectiva RH (right-handed)
-        proj = glm.perspective(
-            glm.radians(self.fov),
-            self.aspect_ratio,
-            self.near,
-            self.far
-        )
-
-        # Correção para OpenGL: Converter para matriz numpy e transpor
-        proj_np = np.array(proj)
-        return proj_np.T  # Retornar já transposta
+        if self._projection_dirty or self._projection_matrix is None:
+            proj = glm.perspective(
+                glm.radians(self.fov),
+                self.aspect_ratio,
+                self.near,
+                self.far
+            )
+            self._projection_matrix = np.array(proj)  # sem .T (pela regra acima)
+            self._projection_dirty = False
+        return self._projection_matrix
 
     def _calculate_projection_matrix(self):
         """Cálculo real da matriz de projeção"""

@@ -63,15 +63,6 @@ class SceneWidget(QOpenGLWidget):
         view_matrix = self.camera.get_view_matrix()
         projection_matrix = self.camera.get_projection_matrix()
 
-        # ===== DEBUG: VERIFICAÇÃO DAS MATRIZES =====
-        print("\n" + "=" * 50)
-        print("🔍 Matriz View (câmera):")
-        print(view_matrix)  # Imprime a matriz 4x4
-        print("\n🔍 Matriz Projection (câmera):")
-        print(projection_matrix)
-        print("=" * 50 + "\n")
-        # ===== FIM DO DEBUG =====
-
         # O seu PlanetRenderer já espera matrizes numpy e faz a transposição (view_matrix.T)
         self.renderer.render(view_matrix, projection_matrix)
 

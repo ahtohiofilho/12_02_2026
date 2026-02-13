@@ -1,5 +1,7 @@
-from ui.main_window import MainWindow
-from core.planet import Planet  # <--- IMPORTAMOS A CLASSE Planet
+# controller.py
+from ui.window import MainWindow
+from core.planet import Planet
+from input.input_manager import InputManager  # Importe o InputManager
 
 
 class Controller:
@@ -7,10 +9,15 @@ class Controller:
         self.app = app
         self.window = None
         self.current_planet = None
+        self.input_manager = None  # Será inicializado depois
 
     def run(self):
-        # self.window = MainWindow() # Antes
         self.window = MainWindow(controller=self)
+
+        # Inicializa InputManager APÓS criar a janela principal
+        self.input_manager = InputManager(self)
+        self.input_manager.install_global_filter(self.app)
+
         self.connect_signals()
         self.window.show()
 
@@ -51,3 +58,15 @@ class Controller:
         else:
             print("❌ Controller: Falha na criação do planeta!")
         # ===== FIM DA ADIÇÃO =====
+
+    @property
+    def camera(self):
+        """Fornece acesso à câmera para o InputManager"""
+        if self.window and self.window.scene:
+            return self.window.scene.camera
+        return None
+
+    def _on_turn_advanced(self):
+        """Chamado quando Enter é pressionado"""
+        print("⏩ Turno avançado!")
+        # Implemente a lógica de avanço de turno aqui

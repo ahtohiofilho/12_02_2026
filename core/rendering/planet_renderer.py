@@ -38,6 +38,7 @@ class PlanetRenderer:
             'vbo': None,
             'vertex_count': 0
         }
+        self.tile_vertex_range = {}
 
         # Shader principal do planeta
         self.vertex_shader_source = """
@@ -114,7 +115,14 @@ class PlanetRenderer:
         print(f"[PlanetRenderer] Controller referenciado: {controller is not None}")
 
     def set_tile_data(self, coord_vert, centros_3d_tiles):
-        print(f"[PlanetRenderer.set_tile_data] Processando dados com abordagem corrigida")
+        """
+        Monta buffers de geometria do planeta.
+
+        Melhorias:
+        - Cria tile_coords_to_index uma vez
+        - Pré-computa o range de vértices por tile (tile_vertex_range) para highlight O(1)
+        - Remove prints de debug
+        """
         self.coord_vert = coord_vert
         self.centros_3d_tiles = centros_3d_tiles
 
@@ -122,45 +130,48 @@ class PlanetRenderer:
         all_indices_list = []
         all_tile_indices_list = []
         current_global_index = 0
-        tile_index_counter = 0
 
-        # Criar mapeamento coordenada -> índice DE UMA VEZ
+        # Range de vértices por tile (para highlight rápido)
+        # tile_index -> (start_vertex, vertex_count)
+        self.tile_vertex_range = {}
+
+        # Criar mapeamento coordenada -> índice uma vez (ordem estável)
         sorted_coords = sorted(coord_vert.keys())
         self.tile_coords_to_index = {coords: idx for idx, coords in enumerate(sorted_coords)}
 
         for coords in sorted_coords:
-            vertices_np = coord_vert[coords]
-            if not hasattr(vertices_np, 'size') or vertices_np.size == 0:
+            vertices_np = coord_vert.get(coords)
+            if vertices_np is None or (hasattr(vertices_np, "size") and vertices_np.size == 0):
                 continue
 
             current_tile_index = self.tile_coords_to_index[coords]
             num_vertices = len(vertices_np)
+            if num_vertices < 3:
+                continue
 
-            # --- CORREÇÃO: Processar todos os vértices do tile de uma vez ---
+            # Registrar bloco contíguo deste tile dentro do buffer final
             start_index = current_global_index
+            self.tile_vertex_range[current_tile_index] = (start_index, num_vertices)
+
+            # Adicionar vértices e tileIndex por vértice
+            # (mantém all_tile_indices por compatibilidade com o pipeline atual)
             for vertex in vertices_np:
                 all_vertices_list.append(vertex)
-                all_tile_indices_list.append(current_tile_index)  # Índice CORRETO para este tile
+                all_tile_indices_list.append(current_tile_index)
                 current_global_index += 1
 
-            # Gerar índices de triângulo (fã)
+            # Gerar índices de triângulo (triangle fan)
             for i in range(1, num_vertices - 1):
-                all_indices_list.extend([
-                    start_index,
-                    start_index + i,
-                    start_index + i + 1
-                ])
+                all_indices_list.extend([start_index, start_index + i, start_index + i + 1])
 
-        self.all_vertices = np.array(all_vertices_list, dtype=np.float32).flatten()
+        self.all_vertices = np.array(all_vertices_list, dtype=np.float32).reshape(-1).astype(np.float32, copy=False)
         self.all_indices = np.array(all_indices_list, dtype=np.uint32)
         self.all_tile_indices = np.array(all_tile_indices_list, dtype=np.uint32)
-        self.index_count = len(self.all_indices)
+        self.index_count = int(self.all_indices.size)
 
-        if len(all_vertices_list) != len(all_tile_indices_list):
-            print(
-                f"❌ ERRO CRÍTICO: Número de vértices ({len(all_vertices_list)}) != número de índices de tile ({len(all_tile_indices_list)})")
-        else:
-            print("✅ Estrutura de dados consistente")
+        # Marcar para recriar recursos GL no próximo init_gl()
+        self.dados_atualizados = True
+        self.initializado = False
 
         return True
 
@@ -398,97 +409,73 @@ class PlanetRenderer:
 
         return shader
 
-    def render(self, view_matrix, projection_matrix, camera_position=None, camera_up=None,
-               hover_highlight_tile=None):
+    def render(
+            self,
+            view_matrix,
+            projection_matrix,
+            camera_position=None,
+            camera_up=None,
+            hover_highlight_tile=None,
+    ):
         """
-        Renderização do planeta com a matemática das matrizes corrigida.
+        Renderização do planeta com política consistente de matrizes:
+        - Camera retorna numpy matrizes SEM transposição
+        - Renderer envia para OpenGL com .T (row-major -> column-major) usando GL_FALSE
         """
         # Verificação de inicialização
         if not self.initializado:
             if self.dados_atualizados:
                 self.init_gl()
             if not self.initializado:
-                print("⚠️ Renderização abortada: renderizador não inicializado")
+                # Sem prints de debug por frame
                 return
-
-        print("\n" + "=" * 50)
-        print(f"🔧 PlanetRenderer.render (ID: {id(self)})")
-
-        # DEBUG 1: Geometria do planeta
-        vertices = self.all_vertices.reshape(-1, 3)
-        min_coords = vertices.min(axis=0)
-        max_coords = vertices.max(axis=0)
-        center = vertices.mean(axis=0)
-        print(f"📐 Geometria:")
-        print(f"  Bounding Box: Min={min_coords} | Max={max_coords}")
-        print(f"  Centro geométrico: {center}")
-        print(f"  Raio aproximado: {np.linalg.norm(max_coords):.2f}")
-
-        # DEBUG 2: Parâmetros da câmera
-        camera = self.controller.window.scene.camera
-        print(f"📷 Câmera:")
-        print(f"  Posição: {camera.position}")
-        print(f"  Distância: {camera.distance}")
-        print(f"  Near plane: {camera.near} | Far plane: {camera.far}")
-        print(f"  FOV: {camera.fov}° | Aspect ratio: {camera.aspect_ratio}")
 
         # === RENDERIZAÇÃO PRINCIPAL ===
         gl.glUseProgram(self.shader_program)
         gl.glBindVertexArray(self.vao)
+
         gl.glActiveTexture(gl.GL_TEXTURE0)
         gl.glBindTexture(gl.GL_TEXTURE_1D, self.tile_color_texture)
 
         # Matriz de modelo
         model_matrix = glm.mat4(1.0)
 
-        # Transposição das matrizes (correção para OpenGL)
-        view_matrix_t = view_matrix.T
-        projection_matrix_t = projection_matrix.T
-
-        # DEBUG 3: Verificação das matrizes
-        print("🧮 Matriz View:")
-        print(f"  Original:\n{view_matrix}")
-        print(f"  Transposta:\n{view_matrix_t}")
-
-        print("🧮 Matriz Projection:")
-        print(f"  Original:\n{projection_matrix}")
-        print(f"  Transposta:\n{projection_matrix_t}")
-
-        print("🧮 Matriz Model (identidade):")
-        print(glm.value_ptr(model_matrix))
-
-        # Passar matrizes para o shader
-        gl.glUniformMatrix4fv(self.uniform_locations['uView'], 1, gl.GL_FALSE, view_matrix_t)
+        # Passar matrizes para o shader (CONSISTENTE: ambas transpostas)
         gl.glUniformMatrix4fv(
-            self.uniform_locations['uProjection'],
+            self.uniform_locations["uView"],
             1,
             gl.GL_FALSE,
-            projection_matrix  # ← Usar a matriz original
+            view_matrix.T,
         )
-        gl.glUniformMatrix4fv(self.uniform_locations['uModel'], 1, gl.GL_FALSE, glm.value_ptr(model_matrix))
-        gl.glUniform1i(self.uniform_locations['uNumTiles'], len(self.tile_coords_to_index))
-        gl.glUniform1i(self.uniform_locations['uTileColorTexture'], 0)
+        gl.glUniformMatrix4fv(
+            self.uniform_locations["uProjection"],
+            1,
+            gl.GL_FALSE,
+            projection_matrix.T,
+        )
+        gl.glUniformMatrix4fv(
+            self.uniform_locations["uModel"],
+            1,
+            gl.GL_FALSE,
+            glm.value_ptr(model_matrix),
+        )
+
+        gl.glUniform1i(self.uniform_locations["uNumTiles"], len(self.tile_coords_to_index))
+        gl.glUniform1i(self.uniform_locations["uTileColorTexture"], 0)
 
         # Chamada de renderização
-        print(f"🎬 Chamando glDrawElements: {self.index_count} índices")
         gl.glDrawElements(gl.GL_TRIANGLES, self.index_count, gl.GL_UNSIGNED_INT, None)
-        gl.glBindVertexArray(0)
 
-        # Verificação de erros OpenGL
-        error = gl.glGetError()
-        print(f"🔍 OpenGL error: {error} (0 = GL_NO_ERROR)")
+        gl.glBindVertexArray(0)
 
         # Highlight de tile (se aplicável)
         if hover_highlight_tile is not None:
-            print(f"✨ Renderizando highlight no tile {hover_highlight_tile}")
             self._render_tile_highlight(
                 hover_highlight_tile,
                 view_matrix,
                 projection_matrix,
-                color=(1.0, 0.843, 0.0, 0.5)
+                color=(1.0, 0.843, 0.0, 0.5),
             )
-
-        print("=" * 50 + "\n")
 
     def _render_tile_highlight(self, tile_coords, view_matrix, projection_matrix,
                                color=(1.0, 0.843, 0.0, 0.5)):
