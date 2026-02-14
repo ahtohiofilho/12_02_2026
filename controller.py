@@ -1,7 +1,7 @@
 # controller.py
 from ui.window import MainWindow
 from core.planet import Planet
-from input.input_manager import InputManager  # Importe o InputManager
+from input.input_manager import InputManager
 
 
 class Controller:
@@ -67,6 +67,23 @@ class Controller:
         return None
 
     def _on_turn_advanced(self):
-        """Chamado quando Enter é pressionado"""
-        print("⏩ Turno avançado!")
-        # Implemente a lógica de avanço de turno aqui
+        """Chamado quando Enter é pressionado — resolve todas as ordens do turno."""
+        if not self.current_planet:
+            print("⚠️ Nenhum planeta ativo. Crie um planeta primeiro.")
+            return
+
+        engine = self.current_planet.turn_engine
+
+        # Fase 1: ordens já foram submetidas via UI ao longo do turno
+        # ex.: engine.submit_order(stack_uid="...", dst_tile=(5, 1))
+
+        # Fase 2: resolver tudo de uma vez
+        report = engine.resolve_turn()
+
+        # Fase 3: feedback
+        print(f"⏩ Turno {report.turn_number} resolvido!")
+        print(f"   Ordens processadas: {report.total_orders}")
+        print(f"   Batalhas: {report.total_battles}")
+
+        for r in report.results:
+            print(f"   [{r.result_type.name}] {r.stack_uid[:8]}... → {r.dst_tile}: {r.reason}")

@@ -9,6 +9,7 @@ import networkx as nx
 from config import CIV_CORES
 from core.diplomacy import DiplomacyMatrix
 from core.stacks import StackRepository
+from core.turn_engine import TurnEngine
 
 from .civilization import Civilization, Province
 from .generation._geography import definir_geografia
@@ -80,13 +81,20 @@ class Planet:
         self._create_initial_civilizations()
         print(f" -> Civilizações concluídas. {len(self.civilizations)} nações foram fundadas.")
 
-        # --- Runtime Systems (modular / plugável) ---
+        # --- Etapa 4: Runtime Systems (modular / plugável) ---
         # Diplomacia e Stacks são storage; regras e combate vivem fora.
         self.diplomacy = DiplomacyMatrix()
         self.stacks = StackRepository()
 
         if spawn_initial_units:
             self._spawn_initial_stacks()
+
+        # TurnEngine orquestra ordens de movimento e combate por turno.
+        # Depende de stacks e diplomacy, por isso é instanciado por último.
+        self.turn_engine = TurnEngine(
+            stacks=self.stacks,
+            diplomacy=self.diplomacy,
+        )
 
         print("\nObjeto Planeta criado e pronto para uso.")
 
