@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout
-from ui.sidebar import Sidebar
+from ui.sidebar import SideBar
 # Antes era: from ui.scene3d import Scene3D
 from ui.scene import SceneWidget # 1. Mude o import
 
@@ -14,7 +14,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(central)
 
         # Sidebar ocupa 40%
-        self.sidebar = Sidebar()
+        self.sidebar = SideBar(controller)
         layout.addWidget(self.sidebar, stretch=4)
 
         # Cena 3D ocupa 60%

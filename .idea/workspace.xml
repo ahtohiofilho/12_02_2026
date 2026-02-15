@@ -4,16 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="As bandeiras estão sendo renderizadas na cena 3D.">
-      <change afterPath="$PROJECT_DIR$/core/economy/adapters/planet_adapter.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/economy/market.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/economy/models.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/economy/price.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/economy/province_repo.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/economy/trade.py" afterDir="false" />
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementação da economia e de sistema de reprodutibilidade de planeta idêntico com base em seed.">
+      <change afterPath="$PROJECT_DIR$/ui/civ_manager.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/generation/_geography.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/generation/_geography.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/window.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/window.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -130,7 +127,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771132842127</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Implementação da economia e de sistema de reprodutibilidade de planeta idêntico com base em seed.">
+      <option name="closed" value="true" />
+      <created>1771168527295</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1771168527295</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -140,6 +145,7 @@
     <MESSAGE value="Nesse commit vai tanta coisa que é difícil descrever." />
     <MESSAGE value="Implementei uma base para o sistema de turnos." />
     <MESSAGE value="As bandeiras estão sendo renderizadas na cena 3D." />
-    <option name="LAST_COMMIT_MESSAGE" value="As bandeiras estão sendo renderizadas na cena 3D." />
+    <MESSAGE value="Implementação da economia e de sistema de reprodutibilidade de planeta idêntico com base em seed." />
+    <option name="LAST_COMMIT_MESSAGE" value="Implementação da economia e de sistema de reprodutibilidade de planeta idêntico com base em seed." />
   </component>
 </project>

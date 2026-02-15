@@ -1,168 +1,187 @@
+# core/rendering/camera.py
 import math
 import numpy as np
 import glm
 
 
-# Função utilitária que estava sendo usada no seu código
-def normalize(v):
-    norm = np.linalg.norm(v)
-    if norm == 0:
+def _normalize(v: np.ndarray) -> np.ndarray:
+    n = float(np.linalg.norm(v))
+    if n == 0.0:
         return v
-    return v / norm
+    return v / n
 
 
 class Camera:
-    def __init__(self, distance=5.0):
-        """
-        Câmera orbital sempre focada na origem (0,0,0)
-        """
+    """
+    Câmera orbital focada na origem (0,0,0).
+
+    Convenção (consolidada / eficiente):
+    - NÃO aplica flip no eixo X em look_at_tile().
+      Se você quiser espelhar o mundo, faça isso no renderer (uModel) de forma consistente.
+    """
+
+    __slots__ = (
+        "fator",
+        "distance",
+        "azimuth",
+        "elevation",
+        "selected_tile_position",
+        "min_distance",
+        "max_distance",
+        "min_elevation",
+        "max_elevation",
+        "fov",
+        "aspect_ratio",
+        "near",
+        "far",
+        "_projection_matrix",
+        "_projection_dirty",
+        "_view_matrix",
+        "_view_dirty",
+        "position",
+        "target",
+        "front",
+        "right",
+        "up",
+        "_world_up",
+    )
+
+    def __init__(self, distance: float = 5.0):
         # Parâmetros orbitais
-        self.fator = distance
-        self.distance = distance  # Distância da origem
-        self.azimuth = math.radians(45.0)  # Começar com um ângulo para não ver de frente
-        self.elevation = math.radians(30.0)  # E um pouco de cima
+        self.fator = float(distance)
+        self.distance = float(distance)
+        self.azimuth = math.radians(45.0)
+        self.elevation = math.radians(30.0)
         self.selected_tile_position = None
 
-        # Limites de segurança
-        self.min_distance = self.fator / 2
-        self.max_distance = self.fator * 2
-        self.min_elevation = -math.pi / 2 + 0.1  # Quase -90°
-        self.max_elevation = math.pi / 2 - 0.1  # Quase +90°
+        # Limites
+        self.min_distance = self.fator / 2.0
+        self.max_distance = self.fator * 2.0
+        self.min_elevation = -math.pi / 2.0 + 0.1
+        self.max_elevation = math.pi / 2.0 - 0.1
 
-        # Parâmetros de projeção
+        # Projeção
         self.fov = 45.0
         self.aspect_ratio = 1.0
         self.near = 0.1
         self.far = 100.0
 
-        # Cache e flag de sujeira
+        # Cache
         self._projection_matrix = None
         self._projection_dirty = True
         self._view_matrix = None
         self._view_dirty = True
 
-        self.target = np.array([0.0, 0.0, 0.0])
+        # Vetores
+        self._world_up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        self.target = np.array([0.0, 0.0, 0.0], dtype=np.float64)
+        self.position = np.array([0.0, 0.0, 0.0], dtype=np.float64)
 
-        # Calcula posição inicial
+        self.front = np.array([0.0, 0.0, -1.0], dtype=np.float64)
+        self.right = np.array([1.0, 0.0, 0.0], dtype=np.float64)
+        self.up = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
         self._update_position()
 
-    def _update_position(self):
-        """Atualiza a posição da câmera e marca view matrix como suja"""
-        x = self.distance * math.cos(self.elevation) * math.sin(self.azimuth)
-        y = self.distance * math.sin(self.elevation)
-        z = self.distance * math.cos(self.elevation) * math.cos(self.azimuth)
+    def _update_position(self) -> None:
+        ce = math.cos(self.elevation)
+        se = math.sin(self.elevation)
+        sa = math.sin(self.azimuth)
+        ca = math.cos(self.azimuth)
 
-        self.position = np.array([x, y, z])
-        self.target = np.array([0.0, 0.0, 0.0])
+        # Orbital em torno da origem
+        x = self.distance * ce * sa
+        y = self.distance * se
+        z = self.distance * ce * ca
 
-        # Vetores da câmera
-        self.front = normalize(self.target - self.position)
-        # Ordem corrigida para sistema de coordenadas destro (padrão OpenGL)
-        self.right = normalize(np.cross(self.front, np.array([0.0, 1.0, 0.0])))
-        self.up = normalize(np.cross(self.right, self.front))
+        self.position[...] = (x, y, z)
+        self.target[...] = (0.0, 0.0, 0.0)
 
-        # Marca view matrix como suja
+        # Base da câmera
+        self.front = _normalize(self.target - self.position)
+        # Sistema destro (OpenGL): right = front x world_up
+        self.right = _normalize(np.cross(self.front, self._world_up))
+        self.up = _normalize(np.cross(self.right, self.front))
+
         self._view_dirty = True
 
-    def orbit(self, delta_azimuth, delta_elevation):
-        """Rotaciona a câmera ao redor da origem"""
-        self.azimuth += delta_azimuth
-        self.elevation += delta_elevation
+    def orbit(self, delta_azimuth: float, delta_elevation: float) -> None:
+        self.azimuth += float(delta_azimuth)
+        self.elevation += float(delta_elevation)
 
-        # Limita elevação para evitar flip
-        self.elevation = max(self.min_elevation, min(self.elevation, self.max_elevation))
+        # Clamp elevação
+        if self.elevation < self.min_elevation:
+            self.elevation = self.min_elevation
+        elif self.elevation > self.max_elevation:
+            self.elevation = self.max_elevation
 
         self._update_position()
 
-    def zoom(self, delta):
-        """Aproxima/afasta a câmera da origem"""
-        self.distance += delta
-        self.distance = max(self.min_distance, min(self.distance, self.max_distance))
+    def zoom(self, delta: float) -> None:
+        self.distance += float(delta)
+
+        if self.distance < self.min_distance:
+            self.distance = self.min_distance
+        elif self.distance > self.max_distance:
+            self.distance = self.max_distance
+
         self._update_position()
 
-    def get_view_matrix(self):
+    def get_view_matrix(self) -> np.ndarray:
         if self._view_dirty or self._view_matrix is None:
             view = glm.lookAt(
-                glm.vec3(self.position),
-                glm.vec3(0, 0, 0),
-                glm.vec3(self.up)
+                glm.vec3(float(self.position[0]), float(self.position[1]), float(self.position[2])),
+                glm.vec3(0.0, 0.0, 0.0),
+                glm.vec3(float(self.up[0]), float(self.up[1]), float(self.up[2])),
             )
-            self._view_matrix = np.array(view)
+            self._view_matrix = np.array(view, dtype=np.float32, copy=False)
             self._view_dirty = False
         return self._view_matrix
 
-    def _calculate_view_matrix_lookat(self):
-        """Cálculo de matriz de view usando uma abordagem 'lookAt' manual"""
-        z_axis = normalize(self.position - self.target)
-        x_axis = normalize(np.cross(np.array([0.0, 1.0, 0.0]), z_axis))
-        y_axis = np.cross(z_axis, x_axis)
-
-        translation = np.identity(4)
-        translation[3, 0] = -self.position[0]
-        translation[3, 1] = -self.position[1]
-        translation[3, 2] = -self.position[2]
-
-        rotation = np.identity(4)
-        rotation[0, 0:3] = x_axis
-        rotation[1, 0:3] = y_axis
-        rotation[2, 0:3] = z_axis
-
-        # A ordem correta é Rotação * Translação
-        return rotation @ translation
-
-    def get_projection_matrix(self):
+    def get_projection_matrix(self) -> np.ndarray:
         if self._projection_dirty or self._projection_matrix is None:
             proj = glm.perspective(
-                glm.radians(self.fov),
-                self.aspect_ratio,
-                self.near,
-                self.far
+                glm.radians(float(self.fov)),
+                float(self.aspect_ratio),
+                float(self.near),
+                float(self.far),
             )
-            self._projection_matrix = np.array(proj)  # sem .T (pela regra acima)
+            self._projection_matrix = np.array(proj, dtype=np.float32, copy=False)
             self._projection_dirty = False
         return self._projection_matrix
 
-    def _calculate_projection_matrix(self):
-        """Cálculo real da matriz de projeção"""
-        f = 1.0 / math.tan(math.radians(self.fov) / 2.0)
-
-        # Matriz de projeção em perspectiva (row-major)
-        return np.array([
-            [f / self.aspect_ratio, 0, 0, 0],
-            [0, f, 0, 0],
-            [0, 0, (self.far + self.near) / (self.near - self.far), -1],
-            [0, 0, (2 * self.far * self.near) / (self.near - self.far), 0]
-        ])
-
-    def set_aspect_ratio(self, width, height):
-        """Define o aspect ratio e marca a matriz de projeção como suja"""
-        new_aspect = width / height if height > 0 else 1.0
+    def set_aspect_ratio(self, width: float, height: float) -> None:
+        h = float(height)
+        new_aspect = float(width) / h if h > 0.0 else 1.0
         if abs(new_aspect - self.aspect_ratio) > 1e-6:
             self.aspect_ratio = new_aspect
             self._projection_dirty = True
 
-    def look_at_tile(self, point_3d):
-        """Reorienta a câmera para focar em um tile específico MANTENDO FOCO NA ORIGEM"""
-        if hasattr(point_3d, 'x'):
-            tile_pos = np.array([point_3d.x, point_3d.y, point_3d.z])
+    def look_at_tile(self, point_3d) -> None:
+        """
+        Reorienta a câmera para que a direção (a partir da origem) aponte para o tile,
+        mantendo o alvo na origem. NÃO aplica flip de eixo.
+        """
+        if hasattr(point_3d, "x"):
+            x, y, z = float(point_3d.x), float(point_3d.y), float(point_3d.z)
         else:
-            tile_pos = np.array(point_3d)
+            x, y, z = (float(point_3d[0]), float(point_3d[1]), float(point_3d[2]))
 
-        # CORREÇÃO: Inverter o eixo X para corresponder à renderização
-        # A renderização usa: model_matrix = glm.scale(model_matrix, glm.vec3(-1.0, 1.0, 1.0))
-        corrected_tile_pos = np.array([-tile_pos[0], tile_pos[1], tile_pos[2]])
+        # Direção na esfera (unitária)
+        norm = math.sqrt(x * x + y * y + z * z)
+        if norm == 0.0:
+            return
 
-        print(f"[Camera.look_at_tile] Posição original do tile: {tile_pos}")
-        print(f"[Camera.look_at_tile] Posição corrigida (X invertido): {corrected_tile_pos}")
+        dx, dy, dz = x / norm, y / norm, z / norm
 
-        # Normaliza para obter direção na esfera unitária
-        direction_to_tile = corrected_tile_pos / np.linalg.norm(corrected_tile_pos)
+        # Ângulos orbitais
+        self.azimuth = math.atan2(dx, dz)
+        self.elevation = math.asin(dy)
 
-        # Calcula novos ângulos orbitais
-        self.azimuth = math.atan2(direction_to_tile[0], direction_to_tile[2])
-        self.elevation = math.asin(direction_to_tile[1])
-
-        # Limita a elevação
-        self.elevation = max(self.min_elevation, min(self.elevation, self.max_elevation))
+        # Clamp elevação
+        if self.elevation < self.min_elevation:
+            self.elevation = self.min_elevation
+        elif self.elevation > self.max_elevation:
+            self.elevation = self.max_elevation
 
         self._update_position()
