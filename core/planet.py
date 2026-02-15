@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-
+import uuid
 import networkx as nx
 
 from config import CIV_CORES
@@ -27,7 +27,7 @@ class Planet:
       (as regras e o combate não ficam no Planet)
     """
 
-    def __init__(self, n: int, starting_biome: str = "Meadow", *, spawn_initial_units: bool = False):
+    def __init__(self, fator: int, starting_biome: str = "Meadow", *, spawn_initial_units: bool = False):
         """
         Construtor do Planeta. Orquestra a geração procedural.
 
@@ -36,14 +36,14 @@ class Planet:
             starting_biome (str): O bioma preferencial para iniciar civilizações.
             spawn_initial_units (bool): Se True, cria 1 stack + 1 unidade na capital de cada civ.
         """
-        print(f"Instanciando novo objeto Planeta com n={n}...")
-
-        self.n = int(n)
+        print(f"Instanciando novo objeto Planeta com n={fator}...")
+        self.id = str(uuid.uuid4())
+        self.fator = int(fator)
         self.starting_biome = starting_biome
 
         # --- Etapa 1: Geração Geométrica ---
         print(" -> Etapa 1: Gerando geometria dos polígonos...")
-        polygons_map, centers_map = dicionario_poligonos(fator=self.n)
+        polygons_map, centers_map = dicionario_poligonos(fator=self.fator)
 
         self.polygons_map = polygons_map
         self.centers_map = centers_map
@@ -65,7 +65,7 @@ class Planet:
         print(" -> Etapa 2: Construindo grafo e definindo geografia...")
         graph, capitals = definir_geografia(
             poligonos=self.polygons_map,
-            fator=self.n,
+            fator=self.fator,
             bioma=self.starting_biome,
         )
 

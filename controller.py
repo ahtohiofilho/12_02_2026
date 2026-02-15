@@ -29,7 +29,7 @@ class Controller:
         print("Controller: Recebido pedido para criar um novo planeta.")
 
         # 1. Instancia a classe
-        self.current_planet = Planet(n=5)
+        self.current_planet = Planet(fator=5)
 
         # Checagem e logs para garantir que o objeto foi criado corretamente
         if self.current_planet:

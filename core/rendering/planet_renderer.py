@@ -1,7 +1,7 @@
 import numpy as np
 import OpenGL.GL as gl
 import glm
-# from .civ_icon import CivIcon  # Comentado por enquanto
+from core.rendering.civ_flag import CivFlag
 # from .color_picking import PickingSystem # Comentado por enquanto
 # from .tile_units_renderer import TileUnitsRenderer # Comentado por enquanto
 
@@ -21,7 +21,7 @@ class PlanetRenderer:
         self.all_tile_indices = np.array([], dtype=np.uint32)
         self.initializado = False
         self.dados_atualizados = False
-        #self.civ_icon_renderer = CivIcon()
+        self.civ_flag_renderer = CivFlag()
         #self.picking_system = None
         self.controller = controller
 
@@ -176,9 +176,8 @@ class PlanetRenderer:
         return True
 
     def set_civilization_data(self, planeta):
-        """Configura os dados das civilizações para o renderizador de ícones"""
-        if hasattr(self, 'centros_3d_tiles'):
-            self.civ_icon_renderer.set_civilization_data(planeta, self.centros_3d_tiles)
+        if hasattr(self, 'centros_3d_tiles') and self.centros_3d_tiles:
+            self.civ_flag_renderer.set_civilization_data(planeta, self.centros_3d_tiles)
 
     def set_tile_colors(self, tile_colors_dict):
         """Recebe um dicionário mapeando coordenadas de tile para cores [R, G, B]."""
@@ -200,20 +199,27 @@ class PlanetRenderer:
         self.tile_color_texture_data = color_array
 
     def needs_init(self):
-        """Verifica se init_gl precisa ser chamado."""
+        if len(self.all_vertices) == 0:
+            return False  # Ainda não há planeta — nada a fazer
         return not self.initializado or self.dados_atualizados
 
     def init_gl(self):
         """
-        Inicializa os recursos OpenGL: shaders, VAO, VBOs, EBO, Textura de Cores, Highlight.
-        Retorna True se bem-sucedido, False caso contrário.
+        Inicializa os recursos OpenGL do PlanetRenderer e (se existir) do renderer de bandeiras (CivFlag).
+
+        Política:
+          - PlanetRenderer continua dono do pipeline do planeta (VAO/VBO/EBO + shader + textura 1D).
+          - Se houver self.civ_flag_renderer (CivFlag), ele é inicializado aqui também,
+            garantindo que tudo seja criado no mesmo contexto OpenGL.
+
+        Retorna True se o planeta inicializou; bandeiras são "best-effort" (não falham o planeta).
         """
         print("\n" + "=" * 50)
         print(f"🔧 PlanetRenderer.init_gl INICIADO (ID: {id(self)})")
 
-        # Resetar estado para garantir inicialização limpa
+        # IMPORTANTE: não zere dados_atualizados aqui no começo.
+        # Se algo falhar, você quer que o próximo frame tente de novo.
         self.initializado = False
-        self.dados_atualizados = False
 
         # Verificação crítica de dados ANTES de qualquer operação OpenGL
         if len(self.all_vertices) == 0:
@@ -229,9 +235,9 @@ class PlanetRenderer:
         print(f"  Total de tiles: {len(self.tile_coords_to_index)}")
 
         try:
-            # Limpeza se já foi inicializado anteriormente
-            if self.initializado:
-                self.cleanup_gl()
+            # Limpeza se já foi inicializado anteriormente (ou se restou lixo)
+            # OBS: se você chamar cleanup_gl aqui, garanta que ele não dependa de self.initializado
+            self.cleanup_gl()
 
             # === SHADER PRINCIPAL DO PLANETA ===
             vertex_shader = self.compile_shader(self.vertex_shader_source, gl.GL_VERTEX_SHADER)
@@ -261,20 +267,18 @@ class PlanetRenderer:
 
             # Cache de uniform locations
             self.uniform_locations = {
-                'uView': gl.glGetUniformLocation(self.shader_program, "uView"),
-                'uProjection': gl.glGetUniformLocation(self.shader_program, "uProjection"),
-                'uModel': gl.glGetUniformLocation(self.shader_program, "uModel"),
-                'uNumTiles': gl.glGetUniformLocation(self.shader_program, "uNumTiles"),
-                'uTileColorTexture': gl.glGetUniformLocation(self.shader_program, "uTileColorTexture")
+                "uView": gl.glGetUniformLocation(self.shader_program, "uView"),
+                "uProjection": gl.glGetUniformLocation(self.shader_program, "uProjection"),
+                "uModel": gl.glGetUniformLocation(self.shader_program, "uModel"),
+                "uNumTiles": gl.glGetUniformLocation(self.shader_program, "uNumTiles"),
+                "uTileColorTexture": gl.glGetUniformLocation(self.shader_program, "uTileColorTexture"),
             }
 
-            # Verificação de uniforms
             uniform_errors = 0
             for uniform_name, location in self.uniform_locations.items():
                 if location == -1:
                     print(f"⚠️ Uniform não encontrado: '{uniform_name}'")
                     uniform_errors += 1
-
             if uniform_errors > 0:
                 print(f"⚠️ {uniform_errors} uniforms não encontrados")
 
@@ -289,7 +293,7 @@ class PlanetRenderer:
             gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
             gl.glEnableVertexAttribArray(0)
 
-            # VBO para índices de tile
+            # VBO para índices de tile (integer attribute)
             self.vbo_tile_indices = gl.glGenBuffers(1)
             gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_tile_indices)
             gl.glBufferData(gl.GL_ARRAY_BUFFER, self.all_tile_indices.nbytes, self.all_tile_indices, gl.GL_STATIC_DRAW)
@@ -301,7 +305,9 @@ class PlanetRenderer:
             gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.ebo_indices)
             gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, self.all_indices.nbytes, self.all_indices, gl.GL_STATIC_DRAW)
 
-            # === TEXTURA DE CORES ===
+            gl.glBindVertexArray(0)
+
+            # === TEXTURA DE CORES (1D) ===
             self.tile_color_texture = gl.glGenTextures(1)
             gl.glActiveTexture(gl.GL_TEXTURE0)
             gl.glBindTexture(gl.GL_TEXTURE_1D, self.tile_color_texture)
@@ -310,10 +316,18 @@ class PlanetRenderer:
             gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MIN_FILTER, gl.GL_NEAREST)
             gl.glTexParameteri(gl.GL_TEXTURE_1D, gl.GL_TEXTURE_MAG_FILTER, gl.GL_NEAREST)
 
-            if hasattr(self, 'tile_color_texture_data') and self.tile_color_texture_data is not None:
-                num_colors = self.tile_color_texture_data.shape[0]
-                gl.glTexImage1D(gl.GL_TEXTURE_1D, 0, gl.GL_RGB32F, num_colors, 0, gl.GL_RGB, gl.GL_FLOAT,
-                                self.tile_color_texture_data)
+            if hasattr(self, "tile_color_texture_data") and self.tile_color_texture_data is not None:
+                num_colors = int(self.tile_color_texture_data.shape[0])
+                gl.glTexImage1D(
+                    gl.GL_TEXTURE_1D,
+                    0,
+                    gl.GL_RGB32F,
+                    num_colors,
+                    0,
+                    gl.GL_RGB,
+                    gl.GL_FLOAT,
+                    self.tile_color_texture_data,
+                )
                 print(f"✅ Textura de cores carregada ({num_colors} cores)")
             else:
                 dummy_color = np.array([0.5, 0.5, 0.5], dtype=np.float32)
@@ -322,6 +336,19 @@ class PlanetRenderer:
 
             # === SHADER DE HIGHLIGHT ===
             self._init_highlight_shader()
+
+            # === (NOVO) INICIALIZAR BANDEIRAS (CivFlag), SE EXISTIR ===
+            # Importante: isso roda no contexto GL correto (QOpenGLWidget).
+            if hasattr(self, "civ_flag_renderer") and self.civ_flag_renderer is not None:
+                try:
+                    ok = self.civ_flag_renderer.init_gl()
+                    if ok:
+                        print("✅ CivFlag.init_gl concluído")
+                    else:
+                        print("⚠️ CivFlag.init_gl falhou (bandeiras desativadas por enquanto)")
+                except Exception as e:
+                    # best-effort: não derruba o planeta
+                    print(f"⚠️ Exceção ao inicializar CivFlag: {e}")
 
             # === VERIFICAÇÃO DE ERROS OPENGL ===
             error = gl.glGetError()
@@ -342,6 +369,8 @@ class PlanetRenderer:
             traceback.print_exc()
             self.cleanup_gl()
             self.initializado = False
+            # Mantém dados_atualizados=True para tentar novamente depois
+            self.dados_atualizados = True
             return False
 
     def _init_highlight_shader(self):
@@ -421,54 +450,46 @@ class PlanetRenderer:
         Renderização do planeta com política consistente de matrizes:
         - Camera retorna numpy matrizes SEM transposição
         - Renderer envia para OpenGL com .T (row-major -> column-major) usando GL_FALSE
+
+        Pipeline de renderização:
+            1. Planeta (tiles coloridos)
+            2. Highlight de tile (hover)
+            3. Bandeiras das civilizações (CivFlag)
         """
         # Verificação de inicialização
         if not self.initializado:
             if self.dados_atualizados:
                 self.init_gl()
             if not self.initializado:
-                # Sem prints de debug por frame
                 return
 
-        # === RENDERIZAÇÃO PRINCIPAL ===
+        # === 1. RENDERIZAÇÃO DO PLANETA ===
         gl.glUseProgram(self.shader_program)
         gl.glBindVertexArray(self.vao)
 
         gl.glActiveTexture(gl.GL_TEXTURE0)
         gl.glBindTexture(gl.GL_TEXTURE_1D, self.tile_color_texture)
 
-        # Matriz de modelo
         model_matrix = glm.mat4(1.0)
 
-        # Passar matrizes para o shader (CONSISTENTE: ambas transpostas)
         gl.glUniformMatrix4fv(
-            self.uniform_locations["uView"],
-            1,
-            gl.GL_FALSE,
-            view_matrix.T,
+            self.uniform_locations["uView"], 1, gl.GL_FALSE, view_matrix.T,
         )
         gl.glUniformMatrix4fv(
-            self.uniform_locations["uProjection"],
-            1,
-            gl.GL_FALSE,
-            projection_matrix.T,
+            self.uniform_locations["uProjection"], 1, gl.GL_FALSE, projection_matrix.T,
         )
         gl.glUniformMatrix4fv(
-            self.uniform_locations["uModel"],
-            1,
-            gl.GL_FALSE,
-            glm.value_ptr(model_matrix),
+            self.uniform_locations["uModel"], 1, gl.GL_FALSE, glm.value_ptr(model_matrix),
         )
 
         gl.glUniform1i(self.uniform_locations["uNumTiles"], len(self.tile_coords_to_index))
         gl.glUniform1i(self.uniform_locations["uTileColorTexture"], 0)
 
-        # Chamada de renderização
         gl.glDrawElements(gl.GL_TRIANGLES, self.index_count, gl.GL_UNSIGNED_INT, None)
 
         gl.glBindVertexArray(0)
 
-        # Highlight de tile (se aplicável)
+        # === 2. HIGHLIGHT DE TILE ===
         if hover_highlight_tile is not None:
             self._render_tile_highlight(
                 hover_highlight_tile,
@@ -476,6 +497,10 @@ class PlanetRenderer:
                 projection_matrix,
                 color=(1.0, 0.843, 0.0, 0.5),
             )
+
+        # === 3. BANDEIRAS DAS CIVILIZAÇÕES ===
+        if self.civ_flag_renderer.instances and self.civ_flag_renderer.initialized:
+            self.civ_flag_renderer.render(view_matrix, projection_matrix)
 
     def _render_tile_highlight(self, tile_coords, view_matrix, projection_matrix,
                                color=(1.0, 0.843, 0.0, 0.5)):
