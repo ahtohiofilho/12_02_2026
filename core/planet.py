@@ -1,18 +1,21 @@
 # core/planet.py
-
 from __future__ import annotations
 
 import random
 import uuid
+
 import networkx as nx
 
 from config import CIV_CORES
 from core.diplomacy import DiplomacyMatrix
+from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
+from core.economy.market import MarketSystem
+from core.economy.province_repo import ProvinceEconomyRepository
 from core.stacks import StackRepository
 from core.turn_engine import TurnEngine
 
 from .civilization import Civilization, Province
-from .generation._geography import definir_geografia
+from .generation._geography import definir_geografia, seed_from_planet_id
 from .generation._polygons import dicionario_poligonos
 
 
@@ -23,16 +26,22 @@ class Planet:
 
     Observação (arquitetura modular):
     - Planet guarda o "mundo" (mapa/grafo, civs, províncias).
-    - Sistemas runtime plugáveis ficam como dependências: self.diplomacy, self.stacks.
+    - Sistemas runtime plugáveis ficam como dependências: self.diplomacy, self.stacks, self.economy.
       (as regras e o combate não ficam no Planet)
     """
 
-    def __init__(self, fator: int, starting_biome: str = "Meadow", *, spawn_initial_units: bool = False):
+    def __init__(
+        self,
+        fator: int,
+        starting_biome: str = "Meadow",
+        *,
+        spawn_initial_units: bool = False,
+    ):
         """
         Construtor do Planeta. Orquestra a geração procedural.
 
         Args:
-            n (int): O "fator" para o poliedro de Goldberg (n, 0).
+            fator (int): O "fator" para o poliedro de Goldberg (n, 0).
             starting_biome (str): O bioma preferencial para iniciar civilizações.
             spawn_initial_units (bool): Se True, cria 1 stack + 1 unidade na capital de cada civ.
         """
@@ -40,6 +49,10 @@ class Planet:
         self.id = str(uuid.uuid4())
         self.fator = int(fator)
         self.starting_biome = starting_biome
+
+        # Seed da geografia derivada do ID do planeta:
+        # Para o mesmo self.id, a geografia (grafo + capitais) será idêntica.
+        self.geography_seed: int = seed_from_planet_id(self.id)
 
         # --- Etapa 1: Geração Geométrica ---
         print(" -> Etapa 1: Gerando geometria dos polígonos...")
@@ -67,6 +80,7 @@ class Planet:
             poligonos=self.polygons_map,
             fator=self.fator,
             bioma=self.starting_biome,
+            seed=self.geography_seed,
         )
 
         self.graph: nx.DiGraph = graph
@@ -86,6 +100,11 @@ class Planet:
         self.diplomacy = DiplomacyMatrix()
         self.stacks = StackRepository()
 
+        # Economia (storage + sistema)
+        self.econ_repo = ProvinceEconomyRepository()
+        self.economy = MarketSystem(world=PlanetEconomyAdapter(self, self.econ_repo))
+        self._bootstrap_economy()
+
         if spawn_initial_units:
             self._spawn_initial_stacks()
 
@@ -98,17 +117,44 @@ class Planet:
 
         print("\nObjeto Planeta criado e pronto para uso.")
 
+    # -------------------------
+    # Bootstrap systems
+    # -------------------------
+
+    def _bootstrap_economy(self) -> None:
+        """
+        Cria estados econômicos iniciais para as províncias existentes.
+
+        Importante:
+        - Nesta refatoração, porto/base militar não existem como sistemas.
+        - Se você quiser que toda província exista em todo tile, isso é outra decisão;
+          por enquanto, bootstrap apenas nas províncias já registradas em provinces_by_tile.
+        """
+        for tile in self.provinces_by_tile.keys():
+            s = self.econ_repo.ensure(tile)
+
+            # TODO: substituir por regra real.
+            # Dica: você já tem self.graph.nodes[tile]['fertilidade'], ['bioma'], etc.
+            s.workers = 100
+            s.food_type = "Grain"
+            s.food_output = 50.0
+            s.ore_type = "Iron"
+            s.ore_output = 10.0
+
+    # -------------------------
+    # Civs / stacks
+    # -------------------------
+
     def _create_initial_civilizations(self) -> None:
-        """
-        Usa a lista de capitais para instanciar as Civilizações, usando os nomes
-        e cores do dicionário CIV_CORES.
-        """
         if not self.capitals:
             print("⚠️  AVISO: Nenhuma capital disponível para criar civilizações.")
             return
 
+        # RNG local derivado da seed do planeta → determinístico
+        rng = random.Random(self.geography_seed + 1)
+
         civ_names = list(CIV_CORES.keys())
-        random.shuffle(civ_names)
+        rng.shuffle(civ_names)  # ← era random.shuffle (global, não-determinístico)
 
         for i, capital_coords in enumerate(self.capitals):
             if i >= len(civ_names):
@@ -138,6 +184,10 @@ class Planet:
         for civ in self.civilizations:
             s = self.stacks.create_stack(owner_id=civ.id, tile=civ.capital_coords)
             self.stacks.add_unit_to_stack(s.uid, "infantry")
+
+    # -------------------------
+    # Queries
+    # -------------------------
 
     def get_polygon_data(self, polygon_2d_coords):
         """Retorna os dados de um polígono específico do grafo."""

@@ -49,16 +49,16 @@ class Civilization:
         self.planeta.provinces_by_tile[self.capital_coords] = capital_province
 
     def _generate_flag(self):
-        """Gera a bandeira usando o sistema compartilhado"""
         try:
             from services.flag_service import bandeira
 
-            # Garantir que o planeta tenha ID
             if not hasattr(self.planeta, 'id') or not self.planeta.id:
                 self.planeta.id = str(uuid.uuid4())
 
-            # Gerar número aleatório para o padrão da bandeira
-            flag_type = random.randint(0, 82)
+            # RNG local: mesmo planeta + mesmo civ id → mesma bandeira sempre
+            rng = random.Random(hash((self.planeta.id, self.id)))
+            flag_type = rng.randint(0, 82)  # ← era random.randint (global)
+
             colors = bandeira(
                 self.name,
                 flag_type,
@@ -70,13 +70,14 @@ class Civilization:
             self.flag_type = flag_type
             self.flag_generated = True
         except ImportError:
-            # Fallback se o módulo não estiver disponível
+            rng = random.Random(hash((self.planeta.id, self.id)))
             self.flag_colors = self.color
-            self.flag_type = random.randint(0, 82)
+            self.flag_type = rng.randint(0, 82)
             self.flag_generated = False
             print("⚠️ Módulo de bandeiras não disponível. Usando fallback")
         except Exception as e:
             print(f"❌ Erro ao gerar bandeira: {e}")
+            rng = random.Random(hash((self.planeta.id, self.id)))
             self.flag_colors = self.color
-            self.flag_type = random.randint(0, 82)
+            self.flag_type = rng.randint(0, 82)
             self.flag_generated = False
