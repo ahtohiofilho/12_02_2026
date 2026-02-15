@@ -46,6 +46,8 @@ class Controller:
 
             print("Controller: Notificando a Sidebar para abrir o painel da civilização...")
             self.window.sidebar.on_planet_loaded(True)
+
+            self._on_go_to_capital()
         else:
             print("❌ ERRO: A criação do planeta falhou e retornou None.")
             self.window.sidebar.on_planet_loaded(False)

@@ -27,17 +27,37 @@ class SideBar(QWidget):
         self.stacked_widget.addWidget(self.civ_manager_view)
 
     def _create_menu_widget(self):
-        """Cria o widget do menu inicial com 'Criar Planeta' e 'Sair'."""
+        """Menu inicial: Create Planet no topo central; Exit no canto inferior direito."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QWidget, QGridLayout
+
+        from ui.widgets import compact_button
+
         widget = QWidget()
-        layout = QVBoxLayout(widget)
 
-        self.btn_create = QPushButton("🌌 Create Planet")
-        layout.addWidget(self.btn_create)
+        grid = QGridLayout(widget)
+        grid.setContentsMargins(16, 16, 16, 16)
+        grid.setSpacing(12)
 
-        self.btn_exit = QPushButton("🚪 Exit")
-        layout.addWidget(self.btn_exit)
+        # 3 linhas: topo (conteúdo), meio expansível, rodapé (conteúdo)
+        grid.setRowStretch(0, 0)
+        grid.setRowStretch(1, 1)
+        grid.setRowStretch(2, 0)
 
-        layout.addStretch()
+        # 3 colunas: esquerda expansível, centro (conteúdo), direita expansível
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 0)
+        grid.setColumnStretch(2, 1)
+
+        # Create Planet: topo + centralizado horizontalmente
+        self.btn_create = compact_button("🌌 Create Planet")
+        grid.addWidget(self.btn_create, 0, 1, alignment=Qt.AlignHCenter | Qt.AlignTop)
+
+        # Exit: canto inferior direito, estilo diferente
+        self.btn_exit = compact_button("🚪 Exit")
+        self.btn_exit.setObjectName("dangerButton")
+        grid.addWidget(self.btn_exit, 2, 2, alignment=Qt.AlignRight | Qt.AlignBottom)
+
         return widget
 
     def on_planet_loaded(self, success: bool):

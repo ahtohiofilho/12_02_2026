@@ -10,6 +10,7 @@ from PySide6.QtGui import QFont, QPixmap
 
 from core.planet import Planet
 from core.civilization import Civilization
+from ui.widgets import compact_button
 
 
 class CivilizationManagerWidget(QWidget):
@@ -106,19 +107,35 @@ class CivilizationManagerWidget(QWidget):
         return frame
 
     def _create_footer(self) -> QFrame:
-        """Cria o rodapé com botões de salvar, menu, etc."""
+        """Cria o rodapé com botões de salvar, menu, etc. (botões compactos: texto + padding)."""
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QSizePolicy
+
+        def _compact_button(text: str) -> QPushButton:
+            b = QPushButton(text)
+            # não expandir horizontalmente; altura fixa pelo estilo/min-height do QSS
+            b.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+            b.adjustSize()
+            return b
+
         frame = QFrame()
         frame.setStyleSheet("background-color: #252525; border-top: 1px solid #3a3a3a;")
+
         layout = QHBoxLayout(frame)
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(8)
 
-        layout.addWidget(QPushButton("💾 Save"))
+        btn_save = _compact_button("💾 Save")
+        layout.addWidget(btn_save, 0, Qt.AlignLeft)
+
         layout.addStretch()
-        layout.addWidget(QPushButton("🔙 Menu"))
-        btn_exit = QPushButton("🚪 Exit")
+
+        btn_menu = _compact_button("🔙 Menu")
+        layout.addWidget(btn_menu, 0, Qt.AlignRight)
+
+        btn_exit = _compact_button("🚪 Exit")
         btn_exit.clicked.connect(self.controller.app.quit)
-        layout.addWidget(btn_exit)
+        layout.addWidget(btn_exit, 0, Qt.AlignRight)
 
         return frame
 
@@ -166,12 +183,8 @@ class CivilizationManagerWidget(QWidget):
         self.label_capital_info = QLabel("No capital")
         capital_layout.addWidget(self.label_capital_info)
 
-        self.btn_go_to_capital = QPushButton("📍 Go to Capital")
-        self.btn_go_to_capital.setStyleSheet("padding: 4px 15px;")
-
-        # 2. CONECTAR O CLICK DO BOTÃO PARA EMITIR O SINAL.
+        self.btn_go_to_capital = compact_button("📍 Go to Capital")
         self.btn_go_to_capital.clicked.connect(self.go_to_capital_requested.emit)
-
         capital_layout.addWidget(self.btn_go_to_capital, 0, Qt.AlignLeft)
         layout.addWidget(group_capital)
         layout.addStretch()
