@@ -1,26 +1,10 @@
 # core/economy/trade.py
 """
 Sistema de comércio - Rodadas Sincronizadas (Water-Filling Discreto).
-
-Portado para a arquitetura nova:
-- Entrada: lista de ProvinceView (tile, workers, food_type/ore_type, food_output/ore_output)
-- Entrada: matriz_custos[origem_tile][destino_tile] = custo_monetario_por_unidade (já escalado)
-- Saída: core.economy.models.ResultadoComercio (estrutura única do projeto)
-
-Algoritmo (mesma lógica do projeto antigo):
-- Para cada commodity (tipo), produtores escolhem por rodadas o melhor mercado com base em
-  LUCRO MARGINAL de depositar um lote Δ.
-- Decisão síncrona: todos decidem com snapshot do mercado; depois commit em lote.
-
-Candidatos por produtor:
-- Grupo B: fração mais próxima por custo (default: todos, mas você pode reduzir)
-- Grupo A: mercados "grandes" (workers >= 150% da média)
-- Se Grupo A estiver vazio, usa apenas Grupo B.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Dict, Iterable, List, Tuple
 
 from core.economy.models import ResultadoComercio, Tile, ProvinceView
@@ -32,33 +16,21 @@ class TradeCalculatorError(Exception):
     pass
 
 
-@dataclass(slots=True)
 class TradeCalculator:
     """
     Calculador de comércio por commodity (alimento e minério),
     implementando "rodadas sincronizadas" (decide/commit).
-
-    Observação importante (reprodutibilidade):
-    - Este módulo não usa random.
-    - Para reprodutibilidade forte, iteramos tipos em ordem sorted().
     """
 
-    # demanda per-capita por commodity (constante por categoria)
+    # Constantes de classe
     COEF_DEMANDA_ALIMENTO: float = 4.0
     COEF_DEMANDA_MINERIO: float = 1.0
-
     EPSILON: float = 1e-9
     DEBUG: bool = False
-
-    # candidatos
-    FATOR_MERCADO_GRANDE: float = 1.5  # >= 150% da média
-    FRACAO_MAIS_PROXIMOS: float = 3.0 / 3.0  # 1.0 = todos; reduza se ficar pesado
-
-    # solver
+    FATOR_MERCADO_GRANDE: float = 1.5
+    FRACAO_MAIS_PROXIMOS: float = 3.0 / 3.0
     MAX_RODADAS_PADRAO: int = 200_000
-    ALVO_RODADAS_POR_TIPO: int = 2500  # usado para delta automático
-
-    # --- init ---
+    ALVO_RODADAS_POR_TIPO: int = 2500
 
     def __init__(self, provincias: Iterable[ProvinceView], matriz_custos: Dict[Tile, Dict[Tile, float]]):
         provincias_list = list(provincias)
@@ -149,9 +121,6 @@ class TradeCalculator:
     # --- mercados grandes / candidatos ---
 
     def _calcular_mercados_grandes(self) -> set[Tile]:
-        """
-        Grupo A: mercados com workers >= 150% da média.
-        """
         ws: list[float] = []
         for m in self.ids:
             prov = self.provincias_dict[m]
@@ -172,11 +141,6 @@ class TradeCalculator:
         return grandes
 
     def _get_candidatos(self, produtor: Tile) -> List[Tile]:
-        """
-        Grupo B: fração mais próxima por custo.
-        Grupo A: mercados grandes.
-        Se não houver mercados grandes, retorna apenas Grupo B.
-        """
         M = len(self.ids)
         n_close = max(1, math.ceil(M * float(self.FRACAO_MAIS_PROXIMOS)))
 
@@ -184,7 +148,6 @@ class TradeCalculator:
         if not self._mercados_grandes:
             return proximos
 
-        # união preservando ordem
         cand = list(proximos)
         s = set(cand)
         for m in self._mercados_grandes:
@@ -210,12 +173,6 @@ class TradeCalculator:
         delta: float,
         max_rodadas: int,
     ) -> tuple[Dict[Tile, Dict[Tile, float]], int, bool]:
-        """
-        Retorna:
-          - fluxos[p][m] = qtd enviada do produtor p para o mercado m (shape completo ids x ids)
-          - iteracoes (rodadas executadas)
-          - convergiu
-        """
         fluxos: Dict[Tile, Dict[Tile, float]] = {p: {m: 0.0 for m in self.ids} for p in self.ids}
 
         rem: Dict[Tile, float] = {p: float(ofertas.get(p, 0.0) or 0.0) for p in produtores}
@@ -228,7 +185,6 @@ class TradeCalculator:
 
             decisoes: Dict[Tile, Tuple[Tile | None, float]] = {}
 
-            # decide (snapshot)
             for p in ativos:
                 qtd = min(float(delta), rem[p])
                 candidatos = self._get_candidatos(p)
@@ -249,13 +205,11 @@ class TradeCalculator:
                         melhor_lucro = lucro
                         melhor_m = m
 
-                # se não compensa, descarta (produção some)
                 if melhor_lucro <= 0.0 or melhor_m is None:
                     decisoes[p] = (None, qtd)
                 else:
                     decisoes[p] = (melhor_m, qtd)
 
-            # commit síncrono
             for p, (m, qtd) in decisoes.items():
                 if m is not None:
                     fluxos[p][m] += float(qtd)
@@ -275,20 +229,17 @@ class TradeCalculator:
     ) -> Dict[Tile, float]:
         receitas: Dict[Tile, float] = {coord: 0.0 for coord in self.ids}
 
-        # Q_m
         Q: Dict[Tile, float] = {m: 0.0 for m in self.ids}
         for p in produtores:
             row = fluxos[p]
             for m, qtd in row.items():
                 Q[m] += float(qtd or 0.0)
 
-        # R_m
         R: Dict[Tile, float] = {}
         for m in self.ids:
             Dm = float(demandas.get(m, 0.0) or 0.0)
             R[m] = PriceCalculator.calcular_receita_total(Q[m], Dm)
 
-        # rateio + custo
         for p in produtores:
             total = 0.0
             for m in self.ids:
@@ -417,7 +368,6 @@ class TradeCalculator:
         if self.DEBUG:
             print("\n🔄 [TradeCalculator] Rodadas sincronizadas (portado)")
 
-        # Iterar tipos em ordem fixa -> reprodutibilidade estável.
         resultados_alimentos: Dict[str, dict] = {}
         resultados_minerios: Dict[str, dict] = {}
 
@@ -427,7 +377,6 @@ class TradeCalculator:
         for tipo in sorted(self.tipos_minerio):
             resultados_minerios[tipo] = self._calcular_equilibrio_tipo_ore(tipo)
 
-        # Consolidar no ResultadoComercio único do projeto
         return ResultadoComercio(
             precos_alimento={t: r["precos"] for t, r in resultados_alimentos.items()},
             precos_minerio={t: r["precos"] for t, r in resultados_minerios.items()},

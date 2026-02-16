@@ -8,6 +8,10 @@ Tile = tuple[int, int]
 
 
 class ProvinceView(Protocol):
+    """
+    Visão mínima de uma província para o sistema de comércio.
+    O TradeCalculator só precisa destes campos.
+    """
     tile: Tile
     workers: int
     food_type: str | None
@@ -23,14 +27,13 @@ class EconomyWorldView(Protocol):
 
 @dataclass(slots=True)
 class ResultadoComercio:
-    # Mantive sua estrutura para compatibilidade
     precos_alimento: dict[str, dict[Tile, float]] = field(default_factory=dict)
     precos_minerio: dict[str, dict[Tile, float]] = field(default_factory=dict)
 
     receitas_alimento: dict[Tile, float] = field(default_factory=dict)
     receitas_minerio: dict[Tile, float] = field(default_factory=dict)
 
-    fluxos_alimento: dict[str, dict] = field(default_factory=dict)  # tipo -> origem -> destino -> qtd
+    fluxos_alimento: dict[str, dict] = field(default_factory=dict)
     fluxos_minerio: dict[str, dict] = field(default_factory=dict)
 
     demandas_alimento: dict[str, dict[Tile, float]] = field(default_factory=dict)

@@ -9,6 +9,8 @@ from config import CIV_CORES
 from core.diplomacy import DiplomacyMatrix
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
 from core.economy.market import MarketSystem
+# IMPORTAÇÃO ADICIONADA
+from core.economy.production import process_production_queue
 from core.economy.province_repo import ProvinceEconomyRepository
 from core.production.repo import ProductionQueueRepository
 from core.stacks import StackRepository
@@ -26,11 +28,11 @@ class Planet:
     """
 
     def __init__(
-        self,
-        fator: int,
-        starting_biome: str = "Meadow",
-        *,
-        spawn_initial_units: bool = False,
+            self,
+            fator: int,
+            starting_biome: str = "Meadow",
+            *,
+            spawn_initial_units: bool = False,
     ):
         print(f"Instanciando novo objeto Planeta com n={fator}...")
         self.id = str(uuid.uuid4())
@@ -98,6 +100,58 @@ class Planet:
 
         print("\nObjeto Planeta criado e pronto para uso.")
 
+    def process_production(self) -> list[dict]:
+        """
+        Processa a fila de produção para todas as províncias que têm uma.
+        Esta função deve ser chamada a cada turno.
+        """
+        reports = []
+
+        def add_unit_to_stack_fn(unit_key: str, tile: tuple[int, int]):
+            """Cria uma unidade militar no mapa a partir da produção."""
+            province = self.provinces_by_tile.get(tile)
+            if not province or not province.owner:
+                print(f"⚠️ Impossível produzir unidade em {tile}: província ou dono não encontrados.")
+                return
+
+            owner_id = province.owner.id
+            target_stack = None
+            for s in self.stacks.stacks_in_tile(tile):
+                if s.owner_id == owner_id:
+                    target_stack = s
+                    break
+
+            if target_stack is None:
+                target_stack = self.stacks.create_stack(owner_id=owner_id, tile=tile)
+
+            self.stacks.add_unit_to_stack(target_stack.uid, unit_key)
+            print(f"🏭 Unidade '{unit_key}' produzida em {tile} para civ {owner_id}")
+
+        tiles_com_fila = list(self.production_queues._by_tile.keys())
+        for tile in tiles_com_fila:
+            prov_queue = self.production_queues.ensure(tile)
+            econ_state = self.econ_repo.get(tile)
+            workforce_state = self.workforce_repo.get(tile)
+
+            if not prov_queue.items or not econ_state or not workforce_state:
+                continue
+
+            def remove_first_item_from_queue():
+                prov_queue.items.pop(0)
+
+            report = process_production_queue(
+                econ=econ_state,
+                queue_items=prov_queue.items,
+                remove_first_fn=remove_first_item_from_queue,
+                food_pref=workforce_state.food_pref,
+                add_unit_fn=add_unit_to_stack_fn
+            )
+
+            if report.get("produced"):
+                reports.append(report)
+
+        return reports
+
     @property
     def player_civ(self) -> Civilization | None:
         """
@@ -112,14 +166,30 @@ class Planet:
     def _bootstrap_economy(self) -> None:
         """
         Cria estados econômicos iniciais para as províncias existentes.
+        Capitais recebem WORKERS_CAPITAL_INICIAL.
+        Províncias fundadas depois receberão workers via colonização/transferência.
         """
-        for tile in self.provinces_by_tile.keys():
-            s = self.econ_repo.ensure(tile)
-            s.workers = 100
-            s.food_type = "Grain"
-            s.food_output = 50.0
-            s.ore_type = "Iron"
-            s.ore_output = 10.0
+        from config.economy import WORKERS_CAPITAL_INICIAL
+        from core.economy.production import init_province_economy
+
+        for tile, province in self.provinces_by_tile.items():
+            node_data = self.graph.nodes.get(tile, {})
+
+            biome = node_data.get("bioma", "Meadow")
+            fertility = node_data.get("fertilidade", 3.0)
+            plate = node_data.get("placa", "Unknown")
+
+            workers = WORKERS_CAPITAL_INICIAL if province.is_capital else 0
+
+            state = init_province_economy(
+                tile=tile,
+                biome=biome,
+                fertility=fertility,
+                tectonic_plate=plate,
+                workers=workers,
+            )
+
+            self.econ_repo.upsert(state)
 
     def _create_initial_civilizations(self) -> None:
         if not self.capitals:

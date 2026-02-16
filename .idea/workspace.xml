@@ -4,17 +4,21 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Comecei a refatorar a ui relacionada à província.">
-      <change afterPath="$PROJECT_DIR$/core/production/repo.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/workforce/facade.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/core/workforce/repo.py" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/ui/province/workforce_tab.py" afterDir="false" />
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementei a aba Workforce.">
+      <change afterPath="$PROJECT_DIR$/config/economy.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/economy/production.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/gameplay.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/gameplay.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/economy/adapters/planet_adapter.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/economy/adapters/planet_adapter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/economy/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/economy/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/economy/province_repo.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/economy/province_repo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/economy/trade.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/economy/trade.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/military/types.py" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/production/queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/production/queue.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/civ_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/civ_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/workforce/facade.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/workforce/facade.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/province/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/province/detail_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/detail_panel.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/province/workforce_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/workforce_tab.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -163,7 +167,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771189445446</updated>
     </task>
-    <option name="localTasksCounter" value="11" />
+    <task id="LOCAL-00011" summary="Implementei a aba Workforce.">
+      <option name="closed" value="true" />
+      <created>1771201947519</created>
+      <option name="number" value="00011" />
+      <option name="presentableId" value="LOCAL-00011" />
+      <option name="project" value="LOCAL" />
+      <updated>1771201947519</updated>
+    </task>
+    <option name="localTasksCounter" value="12" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -177,6 +189,7 @@
     <MESSAGE value="Implementei a interface de gerenciamento da civilização e corrigi a matriz de projeção do planeta." />
     <MESSAGE value="Fiz alguns melhoramentos na ui." />
     <MESSAGE value="Comecei a refatorar a ui relacionada à província." />
-    <option name="LAST_COMMIT_MESSAGE" value="Comecei a refatorar a ui relacionada à província." />
+    <MESSAGE value="Implementei a aba Workforce." />
+    <option name="LAST_COMMIT_MESSAGE" value="Implementei a aba Workforce." />
   </component>
 </project>

@@ -15,11 +15,15 @@ from ui.province.military_ui import UNIT_ICONS, UNIT_COLORS
 
 class WorkforceTabWidget(QWidget):
     """
-    Aba Workforce (UI reaproveitada do legado).
-    - Não conhece Planet nem Province diretamente.
-    - Depende de uma facade (core.workforce.facade.ProvinceWorkforceFacade).
-    - Slider hoje salva apenas PREFERÊNCIA (food_pref) e atualiza UI.
-      A lógica de alocação/produção real será plugada depois na facade/core.
+    Aba Workforce com adaptação por bioma.
+
+    Comportamento por tipo de tile:
+      - Sem produção (Ocean/Ice): exibe mensagem informativa, desabilita controles
+      - Apenas food: slider fixo em 100% food, desabilitado
+      - Apenas ore: slider fixo em 100% ore, desabilitado
+      - Ambos: controles completos (slider, barras, split visual)
+
+    Depende de ProvinceWorkforceFacade (não conhece Planet/Province diretamente).
     """
 
     allocation_changed = Signal(float, float)  # food_pct, ore_pct
@@ -38,6 +42,10 @@ class WorkforceTabWidget(QWidget):
         self._pending_value: int | None = None
         self._allocation_preference_pct: int = 50
 
+        # Estado de produção do bioma (atualizado em set_facade)
+        self._has_food = False
+        self._has_ore = False
+
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._init_ui()
 
@@ -45,61 +53,143 @@ class WorkforceTabWidget(QWidget):
 
     def set_facade(self, facade) -> None:
         self.facade = facade
+
         if self.facade:
+            self._has_food = self.facade.has_food_production()
+            self._has_ore = self.facade.has_ore_production()
             self._allocation_preference_pct = int(round(self.facade.get_food_pref() * 100.0))
+        else:
+            self._has_food = False
+            self._has_ore = False
+
+        self._update_biome_adaptation()
         self.update_display()
 
     def update_display(self) -> None:
         if not self.facade:
-            self.btn_buy_worker.setEnabled(False)
-            self.queue_list.clear()
-            self.label_queue_count.setText("Empty queue")
-            self.label_queue_cost.setText("Total: 0.0G")
-            self.label_queue_status.setText("")
+            self._set_empty_state()
             return
 
-        # nomes de recursos (apenas para texto)
+        # Nomes de recursos
         food_name, ore_name = self.facade.resource_names()
         self.label_food_name.setText(f"🌾 {food_name}:")
         self.label_ore_name.setText(f"⛏️ {ore_name}:")
         self.label_food_revenue_name.setText("🌾 Food:")
         self.label_ore_revenue_name.setText("⛏️ Ore:")
 
-        # contratação
+        # Contratação
         info = self.facade.worker_info()
         self.label_workers_current.setText(f"Current: {info.current} workers")
         self.label_worker_cost.setText(f"Cost: {info.next_cost:.1f}G")
         self.btn_buy_worker.setEnabled(True)
 
-        # slider (preferência)
-        pref_pct = int(self._allocation_preference_pct)
-        self.slider_allocation.blockSignals(True)
-        self.slider_allocation.setValue(pref_pct)
-        self.slider_allocation.blockSignals(False)
+        # Slider (preferência) — só atualiza se ambos existem
+        if self._has_food and self._has_ore:
+            pref_pct = int(self._allocation_preference_pct)
+            self.slider_allocation.blockSignals(True)
+            self.slider_allocation.setValue(pref_pct)
+            self.slider_allocation.blockSignals(False)
 
-        self.progress_food.setValue(pref_pct)
-        self.progress_ore.setValue(100 - pref_pct)
+            self.progress_food.setValue(pref_pct)
+            self.progress_ore.setValue(100 - pref_pct)
 
-        # split visual
-        farmers = round(info.current * (pref_pct / 100.0))
-        miners = info.current - farmers
-        self.label_farmers.setText(f"{food_name}: {farmers}")
-        self.label_miners.setText(f"{ore_name}: {miners}")
+            farmers = round(info.current * (pref_pct / 100.0))
+            miners = info.current - farmers
+            self.label_farmers.setText(f"{food_name}: {farmers}")
+            self.label_miners.setText(f"{ore_name}: {miners}")
 
-        # output (v1: lê do econ_repo; futuramente vira “output calculado pela alocação”)
+        elif self._has_food:
+            self.progress_food.setValue(100)
+            self.progress_ore.setValue(0)
+            self.label_farmers.setText(f"{food_name}: {info.current}")
+            self.label_miners.setText(f"{ore_name}: 0")
+
+        elif self._has_ore:
+            self.progress_food.setValue(0)
+            self.progress_ore.setValue(100)
+            self.label_farmers.setText(f"{food_name}: 0")
+            self.label_miners.setText(f"{ore_name}: {info.current}")
+
+        # Output
         food_out, ore_out = self.facade.outputs()
         self.label_food_output.setText(f"{food_out:.1f}")
         self.label_ore_output.setText(f"{ore_out:.1f}")
         self.label_total_output.setText(f"{(food_out + ore_out):.1f}")
 
-        # revenue (somente total, como você pediu)
+        # Revenue
         total_rev = self.facade.revenue_total()
         self.label_food_revenue.setText("—")
         self.label_ore_revenue.setText("—")
         self.label_total_revenue.setText(f"${total_rev:.2f}")
 
-        # fila
+        # Fila
         self._update_queue_display()
+
+    # ---------------- Biome adaptation ----------------
+
+    def _update_biome_adaptation(self) -> None:
+        """Mostra/esconde seções conforme o tipo de produção do tile."""
+        has_any = self._has_food or self._has_ore
+        has_both = self._has_food and self._has_ore
+
+        # Mensagem de bioma sem produção
+        self.no_production_label.setVisible(not has_any)
+
+        # Mensagem de produção única
+        self.single_production_label.setVisible(has_any and not has_both)
+        if self._has_food and not self._has_ore:
+            food_name = "Food"
+            if self.facade:
+                food_name, _ = self.facade.resource_names()
+            self.single_production_label.setText(
+                f"🌾 All workers are assigned to {food_name} production.\n"
+                f"No ore resources available in this biome."
+            )
+            self.single_production_label.setStyleSheet("color: #4CAF50; font-style: italic; padding: 10px;")
+        elif self._has_ore and not self._has_food:
+            ore_name = "Ore"
+            if self.facade:
+                _, ore_name = self.facade.resource_names()
+            self.single_production_label.setText(
+                f"⛏️ All workers are assigned to {ore_name} production.\n"
+                f"No food resources available in this biome."
+            )
+            self.single_production_label.setStyleSheet("color: #FF9800; font-style: italic; padding: 10px;")
+
+        # Slider e controles de alocação
+        self.slider_allocation.setVisible(has_both)
+        self.label_food_icon.setVisible(has_both)
+        self.label_ore_icon.setVisible(has_both)
+
+        # Barras de progresso: visíveis se há qualquer produção
+        self.progress_food.setVisible(has_any)
+        self.progress_ore.setVisible(has_any)
+        self.label_farmers.setVisible(has_any)
+        self.label_miners.setVisible(has_any)
+
+        # Seções inteiras
+        self.group_hiring.setVisible(has_any)
+        self.group_queue.setVisible(has_any)
+        self.group_allocation.setVisible(has_any)
+        self.group_output.setVisible(has_any)
+        self.group_revenue.setVisible(has_any)
+
+    def _set_empty_state(self) -> None:
+        self.btn_buy_worker.setEnabled(False)
+        self.queue_list.clear()
+        self.label_queue_count.setText("Empty queue")
+        self.label_queue_cost.setText("Total: 0.0G")
+        self.label_queue_status.setText("")
+        self.label_workers_current.setText("Current: —")
+        self.label_worker_cost.setText("Cost: —")
+        self.label_farmers.setText("Food: —")
+        self.label_miners.setText("Ore: —")
+        self.label_food_output.setText("0.0")
+        self.label_ore_output.setText("0.0")
+        self.label_total_output.setText("0.0")
+        self.label_food_revenue.setText("—")
+        self.label_ore_revenue.setText("—")
+        self.label_total_revenue.setText("$0.00")
 
     # ---------------- UI building ----------------
 
@@ -118,12 +208,40 @@ class WorkforceTabWidget(QWidget):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(10)
 
-        scroll_layout.addWidget(self._create_hiring_section())
-        scroll_layout.addWidget(self._create_queue_section())
-        scroll_layout.addWidget(self._create_mobile_workers_section())
-        scroll_layout.addWidget(self._create_allocation_section())
-        scroll_layout.addWidget(self._create_output_section())
-        scroll_layout.addWidget(self._create_revenue_section())
+        # Label: sem produção (visível apenas para biomas estéreis)
+        self.no_production_label = QLabel(
+            "⛰️ This biome has no economic production.\n"
+            "It can still be used for strategic or settlement purposes."
+        )
+        self.no_production_label.setAlignment(Qt.AlignCenter)
+        self.no_production_label.setStyleSheet("color: #888; font-style: italic; padding: 20px;")
+        self.no_production_label.setWordWrap(True)
+        self.no_production_label.setVisible(False)
+        scroll_layout.addWidget(self.no_production_label)
+
+        # Label: produção única (visível quando só food ou só ore)
+        self.single_production_label = QLabel("")
+        self.single_production_label.setAlignment(Qt.AlignCenter)
+        self.single_production_label.setWordWrap(True)
+        self.single_production_label.setVisible(False)
+        scroll_layout.addWidget(self.single_production_label)
+
+        # Seções
+        self.group_hiring = self._create_hiring_section()
+        scroll_layout.addWidget(self.group_hiring)
+
+        self.group_queue = self._create_queue_section()
+        scroll_layout.addWidget(self.group_queue)
+
+        self.group_allocation = self._create_allocation_section()
+        scroll_layout.addWidget(self.group_allocation)
+
+        self.group_output = self._create_output_section()
+        scroll_layout.addWidget(self.group_output)
+
+        self.group_revenue = self._create_revenue_section()
+        scroll_layout.addWidget(self.group_revenue)
+
         scroll_layout.addStretch()
 
         scroll.setWidget(scroll_content)
@@ -247,34 +365,14 @@ class WorkforceTabWidget(QWidget):
 
         self.queue_list.itemSelectionChanged.connect(self._on_queue_selection_changed)
 
-        hint = QLabel("💡 Queue is per-province (tile). Processing can be integrated with turns later.")
+        hint = QLabel("💡 Queue is per-province. Processing integrates with turns.")
         hint.setStyleSheet("color: #555; font-size: 9px; font-style: italic;")
         hint.setWordWrap(True)
         layout.addWidget(hint)
         return group
 
-    def _create_mobile_workers_section(self) -> QGroupBox:
-        group = QGroupBox("🚶 Mobile Workers")
-        group.setStyleSheet(self._group_style("#26A69A"))
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 15, 10, 10)
-        layout.setSpacing(8)
-
-        lbl = QLabel(
-            "Mobile workers are not implemented yet.\n"
-            "This section stays as a placeholder to preserve the legacy UI structure."
-        )
-        lbl.setStyleSheet("color: #888; font-size: 11px;")
-        lbl.setWordWrap(True)
-        layout.addWidget(lbl)
-
-        btn = QPushButton("⬆ Detach Worker")
-        btn.setEnabled(False)
-        layout.addWidget(btn, 0, Qt.AlignLeft)
-        return group
-
     def _create_allocation_section(self) -> QGroupBox:
-        group = QGroupBox("📊 Worker Allocation (preference)")
+        group = QGroupBox("📊 Worker Allocation")
         group.setStyleSheet(self._group_style("#81C784"))
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 15, 10, 10)
@@ -290,8 +388,6 @@ class WorkforceTabWidget(QWidget):
         self.slider_allocation.setValue(50)
         self.slider_allocation.setTickPosition(QSlider.TicksBelow)
         self.slider_allocation.setTickInterval(10)
-        self.slider_allocation.setInvertedAppearance(True)
-        self.slider_allocation.setInvertedControls(True)
         self.slider_allocation.valueChanged.connect(self._on_slider_changed)
         self.slider_allocation.setStyleSheet("""
             QSlider::groove:horizontal {
@@ -488,7 +584,7 @@ class WorkforceTabWidget(QWidget):
         self.update_display()
         self.queue_changed.emit()
 
-    # slider debounce
+    # slider
     def _on_slider_changed(self, value: int) -> None:
         if not self.facade:
             return
@@ -508,7 +604,6 @@ class WorkforceTabWidget(QWidget):
         food_pct = value / 100.0
         ore_pct = 1.0 - food_pct
 
-        # por enquanto: só persistir preferência (não recalcula output)
         self.facade.set_food_pref(food_pct)
 
         self.update_display()

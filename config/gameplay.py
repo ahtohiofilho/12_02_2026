@@ -31,18 +31,3 @@ ALLOWED_BIOMES_PER_CATEGORY = {
         'Coast', 'Sea', 'Ocean', 'Ice'
     ],
 }
-
-BASE_UNIT_COST = {
-    'INFANTRY': 10.0,
-    'TANK': 30.0,
-    'ARTILLERY': 25.0,
-    'SUPPORT_VEHICLE': 15.0,
-    'WARSHIP': 50.0,
-    'AIRCRAFT_CARRIER': 80.0,
-    'SUBMARINE': 40.0,
-    'AMPHIBIOUS_SHIP': 35.0,
-    'FIGHTER': 40.0,
-    'BOMBER': 60.0,
-    'GUNSHIP': 50.0,
-    'TRANSPORT_AIRCRAFT': 30.0,
-}

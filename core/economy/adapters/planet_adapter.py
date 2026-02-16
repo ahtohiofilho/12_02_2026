@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable, TYPE_CHECKING
 
 from core.economy.models import EconomyWorldView, ProvinceView, Tile
-from core.economy.province_repo import ProvinceEconomyRepository, ProvinceEconomyState
+from core.economy.province_repo import ProvinceEconomyRepository
 
 if TYPE_CHECKING:
     from core.planet import Planet
@@ -13,6 +13,10 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class _ProvinceViewFromRepo:
+    """
+    Implementação concreta de ProvinceView para o TradeCalculator.
+    Mapeia ProvinceEconomyState -> campos que o comércio precisa.
+    """
     tile: Tile
     workers: int
     food_type: str | None
@@ -23,7 +27,7 @@ class _ProvinceViewFromRepo:
 
 class PlanetEconomyAdapter(EconomyWorldView):
     """
-    Liga Planet + ProvinceEconomyRepository no sistema de economia.
+    Liga Planet + ProvinceEconomyRepository ao sistema de comércio.
     A economia não sabe o que é Planet; só recebe esse adapter.
     """
 

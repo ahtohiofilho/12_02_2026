@@ -108,12 +108,29 @@ class Controller:
             print("⚠️ Nenhum planeta ativo. Crie um planeta primeiro.")
             return
 
+        # --- 1. LÓGICA DE PRODUÇÃO E ECONOMIA DO TURNO ---
+        print("\n🏭 Processando produção e economia...")
+        production_reports = self.game.process_production()
+        if production_reports:
+            for report in production_reports:
+                print(f"   -> Produzido: {report.get('produced')}")
+        else:
+            print("   -> Nenhuma produção concluída neste turno.")
+
+        # Invalida o cache da economia (opcional, mas bom se a produção afeta o mercado)
+        self.game.economy.invalidar_cache()
+        # Aqui você também adicionaria o cálculo de receita/impostos do turno
+        print("💰 Economia e produção processadas.")
+
+        # --- 2. LÓGICA DE MOVIMENTO E COMBATE ---
+        print("\n⚔️ Resolvendo movimentos e combates...")
         engine = self.game.turn_engine
         report = engine.resolve_turn()
 
-        print(f"⏩ Turno {report.turn_number} resolvido!")
-        print(f"   Ordens processadas: {report.total_orders}")
-        # ... (resto dos logs)
+        print(f"\n⏩ Turno {report.turn_number} resolvido!")
+        print(f"   Ordens de movimento processadas: {report.total_orders}")
+        print(f"   Batalhas ocorridas: {report.total_battles}")
 
-        print("Controller: Atualizando a UI após o avanço do turno...")
+        # --- 3. ATUALIZAÇÃO DA UI ---
+        print("\nController: Atualizando a UI após o avanço do turno...")
         self.window.sidebar.civ_manager_view.update_display()
