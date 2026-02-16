@@ -10,8 +10,10 @@ from core.diplomacy import DiplomacyMatrix
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
 from core.economy.market import MarketSystem
 from core.economy.province_repo import ProvinceEconomyRepository
+from core.production.repo import ProductionQueueRepository
 from core.stacks import StackRepository
 from core.turn_engine import TurnEngine
+from core.workforce.repo import WorkforceRepository
 from .civilization import Civilization, Province
 from .generation._geography import definir_geografia, seed_from_planet_id
 from .generation._polygons import dicionario_poligonos
@@ -75,15 +77,25 @@ class Planet:
         # --- Etapa 4: Runtime Systems (modular / plugável) ---
         self.diplomacy = DiplomacyMatrix()
         self.stacks = StackRepository()
+
+        # Economia
         self.econ_repo = ProvinceEconomyRepository()
         self.economy = MarketSystem(world=PlanetEconomyAdapter(self, self.econ_repo))
+
+        # Repos auxiliares (UI/sistemas futuros) — estado do mundo, não da UI
+        self.production_queues = ProductionQueueRepository()
+        self.workforce_repo = WorkforceRepository()
+
         self._bootstrap_economy()
+
         if spawn_initial_units:
             self._spawn_initial_stacks()
+
         self.turn_engine = TurnEngine(
             stacks=self.stacks,
             diplomacy=self.diplomacy,
         )
+
         print("\nObjeto Planeta criado e pronto para uso.")
 
     @property

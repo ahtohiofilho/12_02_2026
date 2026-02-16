@@ -33,6 +33,7 @@ from ui.province.military_ui import (
     format_units_by_category,
     get_unit_category,
 )
+from core.workforce.facade import ProvinceWorkforceFacade
 
 # ============================================================
 # WIDGET PRINCIPAL
@@ -243,15 +244,8 @@ class ProvinceDetailPanel(QWidget):
     # =====================================================================
 
     def _create_workforce_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        placeholder = QLabel("👷 Workforce management coming soon...")
-        placeholder.setStyleSheet("color: #666; font-style: italic;")
-        placeholder.setAlignment(Qt.AlignCenter)
-        layout.addWidget(placeholder)
-        layout.addStretch()
+        from ui.province.workforce_tab import WorkforceTabWidget
+        widget = WorkforceTabWidget()
         return widget
 
     # =====================================================================
@@ -511,6 +505,14 @@ class ProvinceDetailPanel(QWidget):
         # --- Military tab ---
         self._update_military_tab()
         self._refresh_military_panel()
+
+        # --- Workforce tab ---
+        if hasattr(self, "tab_workforce") and self.tab_workforce:
+            try:
+                wf = ProvinceWorkforceFacade(planet=planet, province=prov)
+                self.tab_workforce.set_facade(wf)
+            except Exception as e:
+                print(f"⚠️ Workforce facade error: {e}")
 
         # Status
         self.status_label.setText("Ready")

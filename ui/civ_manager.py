@@ -660,6 +660,5 @@ class CivilizationManagerWidget(QWidget):
         if item:
             prov = item.data(Qt.UserRole)
             if prov:
-                print(f"Província selecionada: {prov.name} em {prov.tile_coords}")
                 self.province_selected.emit(prov)
 

@@ -75,18 +75,15 @@ class SideBar(QWidget):
 
     def _on_province_selected(self, province):
         """Abre o painel de detalhes da província."""
-        print(f"SideBar: Abrindo detalhes da província '{province.name}'")
         planet = self.controller.game
         if not planet:
             print("SideBar: ERRO - planet é None!")
             return
         self.province_detail.set_province(province, planet)
         self.stacked_widget.setCurrentIndex(2)
-        print(f"SideBar: Índice do stacked_widget agora = {self.stacked_widget.currentIndex()}")
 
     def _on_back_from_province(self):
         """Volta do detalhe da província para o civ manager."""
-        print("SideBar: Voltando para o painel da civilização.")
         self.stacked_widget.setCurrentIndex(1)
 
     def _on_go_to_province(self, province):
@@ -105,7 +102,6 @@ class SideBar(QWidget):
             return
 
         center_3d = tile_centers[province.tile_coords]
-        print(f"SideBar: Movendo câmera para '{province.name}' em {province.tile_coords}")
         camera.look_at_tile(center_3d)
 
         if self.controller.window and self.controller.window.scene:
