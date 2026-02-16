@@ -4,12 +4,12 @@ from __future__ import annotations
 import random
 import uuid
 import networkx as nx
+from typing import Optional
 
 from config import CIV_CORES
 from core.diplomacy import DiplomacyMatrix
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
 from core.economy.market import MarketSystem
-# IMPORTAÇÃO ADICIONADA
 from core.economy.production import process_production_queue
 from core.economy.province_repo import ProvinceEconomyRepository
 from core.production.repo import ProductionQueueRepository
@@ -69,22 +69,31 @@ class Planet:
         print(f" -> Geografia concluída. Grafo com {self.graph.number_of_nodes()} nós.")
         print(f" -> {len(self.capitals)} capitais iniciais selecionadas.")
 
-        # --- Etapa 3: Criação das Civilizações / Províncias ---
-        print(" -> Etapa 3: Criando civilizações iniciais...")
+        # --- Etapa 3: Criação das Civilizações (Lógica Corrigida) ---
+        print(" -> Etapa 3: Preparando para criar civilizações...")
+
+        # === PASSO 1: INICIALIZAR O MAPA VAZIO ===
+        # O mapa DEVE existir ANTES da criação das civilizações, pois elas o consultam.
+        self.provinces_by_tile: dict[tuple[int, int], 'Province'] = {}
+        print("[Planet] Mapa de províncias por tile inicializado (vazio).")
+
+        # Agora, crie as civilizações. O construtor delas pode acessar o mapa vazio sem erro.
         self.civilizations: list[Civilization] = []
-        self.provinces_by_tile: dict[tuple[int, int], Province] = {}
         self._create_initial_civilizations()
         print(f" -> Civilizações concluídas. {len(self.civilizations)} nações foram fundadas.")
+
+        # === PASSO 2: POPULAR O MAPA EXISTENTE ===
+        # Agora que as províncias foram criadas dentro das civilizações, popule o mapa.
+        for civ in self.civilizations:
+            for prov in civ.provinces:
+                self.provinces_by_tile[prov.tile_coords] = prov
+        print(f"[Planet] Mapa de províncias por tile populado com {len(self.provinces_by_tile)} entradas.")
 
         # --- Etapa 4: Runtime Systems (modular / plugável) ---
         self.diplomacy = DiplomacyMatrix()
         self.stacks = StackRepository()
-
-        # Economia
         self.econ_repo = ProvinceEconomyRepository()
         self.economy = MarketSystem(world=PlanetEconomyAdapter(self, self.econ_repo))
-
-        # Repos auxiliares (UI/sistemas futuros) — estado do mundo, não da UI
         self.production_queues = ProductionQueueRepository()
         self.workforce_repo = WorkforceRepository()
 
@@ -97,7 +106,6 @@ class Planet:
             stacks=self.stacks,
             diplomacy=self.diplomacy,
         )
-
         print("\nObjeto Planeta criado e pronto para uso.")
 
     def process_production(self) -> list[dict]:
@@ -109,7 +117,7 @@ class Planet:
 
         def add_unit_to_stack_fn(unit_key: str, tile: tuple[int, int]):
             """Cria uma unidade militar no mapa a partir da produção."""
-            province = self.provinces_by_tile.get(tile)
+            province = self.get_province(tile) # Usando o método corrigido
             if not province or not province.owner:
                 print(f"⚠️ Impossível produzir unidade em {tile}: província ou dono não encontrados.")
                 return
@@ -153,32 +161,25 @@ class Planet:
         return reports
 
     @property
-    def player_civ(self) -> Civilization | None:
+    def player_civ(self) -> Optional[Civilization]:
         """
         Propriedade de atalho para retornar a civilização do jogador.
-        Por convenção, é sempre a primeira da lista 'self.civilizations'.
-        Retorna None se a lista estiver vazia.
+        Por convenção, é sempre a primeira da lista.
         """
-        if self.civilizations:
-            return self.civilizations[0]
-        return None
+        return self.civilizations[0] if self.civilizations else None
 
     def _bootstrap_economy(self) -> None:
         """
         Cria estados econômicos iniciais para as províncias existentes.
-        Capitais recebem WORKERS_CAPITAL_INICIAL.
-        Províncias fundadas depois receberão workers via colonização/transferência.
         """
         from config.economy import WORKERS_CAPITAL_INICIAL
         from core.economy.production import init_province_economy
 
         for tile, province in self.provinces_by_tile.items():
             node_data = self.graph.nodes.get(tile, {})
-
             biome = node_data.get("bioma", "Meadow")
             fertility = node_data.get("fertilidade", 3.0)
             plate = node_data.get("placa", "Unknown")
-
             workers = WORKERS_CAPITAL_INICIAL if province.is_capital else 0
 
             state = init_province_economy(
@@ -188,7 +189,6 @@ class Planet:
                 tectonic_plate=plate,
                 workers=workers,
             )
-
             self.econ_repo.upsert(state)
 
     def _create_initial_civilizations(self) -> None:
@@ -202,10 +202,7 @@ class Planet:
 
         for i, capital_coords in enumerate(self.capitals):
             if i >= len(civ_names):
-                print(
-                    f"⚠️ AVISO: Mais capitais ({len(self.capitals)}) do que nomes de civilização "
-                    f"({len(civ_names)}). Algumas não serão criadas."
-                )
+                print(f"⚠️ AVISO: Mais capitais ({len(self.capitals)}) do que nomes. Algumas não serão criadas.")
                 break
 
             civ_name = civ_names[i]
@@ -229,6 +226,9 @@ class Planet:
 
     def get_polygon_data(self, polygon_2d_coords):
         """Retorna os dados de um polígono específico do grafo."""
-        if self.graph.has_node(polygon_2d_coords):
-            return self.graph.nodes[polygon_2d_coords]
-        return None
+        return self.graph.nodes.get(polygon_2d_coords)
+
+    def get_province(self, tile: tuple[int, int]) -> Optional['Province']:
+        """Retorna o objeto Province no tile especificado, ou None se não houver."""
+        return self.provinces_by_tile.get(tile)
+

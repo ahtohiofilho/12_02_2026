@@ -1,11 +1,9 @@
 # ui/province/detail_panel.py
 """
 Widget de gerenciamento de província com abas.
-Adaptado para a arquitetura atual:
-  - Planet com graph, stacks (StackRepository), econ_repo, turn_engine
-  - Province com tile_coords, owner, is_capital, name
-  - Unidades via unit_key (config.unit_stats)
-  - Workforce via WorkforceTabWidget + ProvinceWorkforceFacade
+Serve como um orquestrador, delegando a lógica específica de cada
+aba para seus próprios widgets e facades, garantindo modularidade e
+separação de concerns.
 """
 
 from collections import Counter, defaultdict
@@ -34,21 +32,19 @@ from ui.province.military_ui import (
     format_units_by_category,
     get_unit_category,
 )
+# === NOVAS IMPORTAÇÕES PARA ARQUITETURA MODULAR ===
 from ui.province.workforce_tab import WorkforceTabWidget
+from ui.province.trade_tab import TradeTabWidget
 from core.workforce.facade import ProvinceWorkforceFacade
+from core.trade.facade import ProvinceTradeFacade
 
 
-# ============================================================
-# WIDGET PRINCIPAL
-# ============================================================
+# ===================================================
+
 
 class ProvinceDetailPanel(QWidget):
     """
-    Widget de gerenciamento de uma província individual com abas:
-      - Overview (info geral + economia + guarnição)
-      - Workforce (WorkforceTabWidget com adaptação por bioma)
-      - Trade (placeholder)
-      - Military (unidades presentes + recrutamento)
+    Widget de gerenciamento de uma província individual com abas.
     """
 
     back_requested = Signal()
@@ -58,28 +54,37 @@ class ProvinceDetailPanel(QWidget):
         super().__init__(parent)
         self.province: Province | None = None
         self.planet: Planet | None = None
-        self.facade: ProvinceWorkforceFacade | None = None  # <-- Referência para a facade
+
+        # Facades para as diferentes áreas de lógica
+        self.workforce_facade: ProvinceWorkforceFacade | None = None
+        self.trade_facade: ProvinceTradeFacade | None = None
 
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._init_ui()
 
     def set_province(self, province: Province, planet: Planet):
-        """Define a província e o planeta, e carrega os dados na interface."""
+        """Define a província e o planeta, cria as facades e atualiza as abas."""
         self.province = province
         self.planet = planet
 
-        # Atualizar aba workforce com a facade
         try:
-            # Cria e armazena a facade para uso em todo o painel
-            self.facade = ProvinceWorkforceFacade(planet=planet, province=province)
-            self.workforce_tab.set_facade(self.facade)
+            # 1. Cria a facade para Workforce e a passa para a aba correspondente
+            self.workforce_facade = ProvinceWorkforceFacade(planet=planet, province=province)
+            if hasattr(self.workforce_tab, 'set_facade'):
+                self.workforce_tab.set_facade(self.workforce_facade)
+
+            # 2. Cria a facade para Trade e a passa para a aba correspondente
+            self.trade_facade = ProvinceTradeFacade(planet=planet, province=province)
+            if hasattr(self.trade_tab, 'set_facade'):
+                self.trade_tab.set_facade(self.trade_facade)
+
         except Exception as e:
-            print(f"⚠️ Workforce facade error: {e}")
+            print(f"⚠️ Erro ao criar facades: {e}")
 
         self._load_province_data()
 
     # =====================================================================
-    # LAYOUT PRINCIPAL
+    # LAYOUT PRINCIPAL E CRIAÇÃO DAS ABAS
     # =====================================================================
 
     def _init_ui(self):
@@ -119,19 +124,19 @@ class ProvinceDetailPanel(QWidget):
             QTabBar::tab:hover { background-color: #3a3a3a; }
         """)
 
-        # Tab 0: Overview
+        # Tab 0: Overview (continua aqui por ser simples)
         self.tab_overview = self._create_overview_tab()
         self.tab_widget.addTab(self.tab_overview, "📊 Overview")
 
-        # Tab 1: Workforce (instância única, reutilizada)
+        # Tab 1: Workforce (instância da classe dedicada)
         self.workforce_tab = WorkforceTabWidget()
         self.tab_widget.addTab(self.workforce_tab, "👷 Workforce")
 
-        # Tab 2: Trade (placeholder)
-        self.tab_trade = self._create_trade_tab()
-        self.tab_widget.addTab(self.tab_trade, "🔄 Trade")
+        # Tab 2: Trade (instância da classe dedicada)
+        self.trade_tab = TradeTabWidget()
+        self.tab_widget.addTab(self.trade_tab, "🔄 Trade")
 
-        # Tab 3: Military
+        # Tab 3: Military (continua aqui, mas poderia ser modularizado)
         self.tab_military = self._create_military_tab()
         self.tab_widget.addTab(self.tab_military, "⚔️ Military")
 
@@ -179,9 +184,9 @@ class ProvinceDetailPanel(QWidget):
         self.label_is_capital = QLabel("Capital: No")
 
         for lbl in (
-            self.label_coordinates, self.label_biome, self.label_temperature,
-            self.label_humidity, self.label_altitude, self.label_fertility,
-            self.label_plate,
+                self.label_coordinates, self.label_biome, self.label_temperature,
+                self.label_humidity, self.label_altitude, self.label_fertility,
+                self.label_plate,
         ):
             lbl.setStyleSheet("color: #aaa;")
 
@@ -189,9 +194,9 @@ class ProvinceDetailPanel(QWidget):
         self.label_is_capital.setStyleSheet("color: #aaa;")
 
         for lbl in (
-            self.label_coordinates, self.label_biome, self.label_temperature,
-            self.label_humidity, self.label_altitude, self.label_fertility,
-            self.label_plate, self.label_civilization, self.label_is_capital,
+                self.label_coordinates, self.label_biome, self.label_temperature,
+                self.label_humidity, self.label_altitude, self.label_fertility,
+                self.label_plate, self.label_civilization, self.label_is_capital,
         ):
             layout_basic.addWidget(lbl)
 
@@ -253,22 +258,6 @@ class ProvinceDetailPanel(QWidget):
         return widget
 
     # =====================================================================
-    # TAB: TRADE (placeholder)
-    # =====================================================================
-
-    def _create_trade_tab(self) -> QWidget:
-        widget = QWidget()
-        layout = QVBoxLayout(widget)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        placeholder = QLabel("🔄 Trade overview coming soon...")
-        placeholder.setStyleSheet("color: #666; font-style: italic;")
-        placeholder.setAlignment(Qt.AlignCenter)
-        layout.addWidget(placeholder)
-        layout.addStretch()
-        return widget
-
-    # =====================================================================
     # TAB: MILITARY
     # =====================================================================
 
@@ -316,9 +305,9 @@ class ProvinceDetailPanel(QWidget):
 
         # --- Recrutamento por categoria ---
         category_meta = {
-            "LAND":  ("⚔️ Land Units",  "#4CAF50"),
-            "NAVAL": ("⚓ Naval Units",  "#2196F3"),
-            "AIR":   ("✈️ Air Units",   "#9C27B0"),
+            "LAND": ("⚔️ Land Units", "#4CAF50"),
+            "NAVAL": ("⚓ Naval Units", "#2196F3"),
+            "AIR": ("✈️ Air Units", "#9C27B0"),
         }
 
         self.recruit_buttons: dict[str, QPushButton] = {}
@@ -435,7 +424,7 @@ class ProvinceDetailPanel(QWidget):
     # =====================================================================
 
     def _load_province_data(self):
-        """Carrega todos os dados da província na interface."""
+        """Carrega dados gerais e pede para as abas se atualizarem."""
         prov = self.province
         planet = self.planet
         if not prov or not planet:
@@ -453,39 +442,19 @@ class ProvinceDetailPanel(QWidget):
             node_data = planet.graph.nodes[tile]
 
         self.label_coordinates.setText(f"Coordinates: {tile}")
-
         biome = node_data.get("bioma", "—")
         allowed_cats = self._get_allowed_categories_for_biome(biome, tile, planet)
         self.label_biome.setText(f"Biome: {biome} ({allowed_cats})")
-
         if "temperatura" in node_data:
             self.label_temperature.setText(f"Temperature: {node_data['temperatura']:.1f} °C")
-        else:
-            self.label_temperature.setText("Temperature: —")
-
-        self.label_humidity.setText(
-            f"Humidity: {node_data.get('umidade', '—').capitalize()}"
-        )
-        self.label_altitude.setText(
-            f"Altitude: {node_data.get('altitude', '—').capitalize()}"
-        )
-
+        self.label_humidity.setText(f"Humidity: {node_data.get('umidade', '—').capitalize()}")
+        self.label_altitude.setText(f"Altitude: {node_data.get('altitude', '—').capitalize()}")
         if "fertilidade" in node_data:
             self.label_fertility.setText(f"Fertility: {node_data['fertilidade']:.2f}")
-        else:
-            self.label_fertility.setText("Fertility: —")
-
         plate = node_data.get("placa", "—")
         greek = node_data.get("letra_grega", "")
-        self.label_plate.setText(
-            f"Tectonic Plate: {plate} ({greek})" if greek else f"Tectonic Plate: {plate}"
-        )
-
-        if prov.owner:
-            self.label_civilization.setText(f"Civilization: {prov.owner.name}")
-        else:
-            self.label_civilization.setText("Civilization: —")
-
+        self.label_plate.setText(f"Tectonic Plate: {plate} ({greek})" if greek else f"Tectonic Plate: {plate}")
+        self.label_civilization.setText(f"Civilization: {prov.owner.name}" if prov.owner else "Civilization: —")
         self.label_is_capital.setText(f"Capital: {'⭐ Yes' if prov.is_capital else 'No'}")
 
         # --- Overview: Economia ---
@@ -496,21 +465,18 @@ class ProvinceDetailPanel(QWidget):
             self.label_food_type.setText(econ.food_type or "—")
             self.label_ore.setText(f"{econ.ore_output:.1f}")
             self.label_ore_type.setText(econ.ore_type or "—")
-        else:
-            self.label_workers.setText("0")
-            self.label_food.setText("0.0")
-            self.label_food_type.setText("—")
-            self.label_ore.setText("0.0")
-            self.label_ore_type.setText("—")
 
-        # --- Overview: Guarnição resumida ---
+        # --- DISPARA ATUALIZAÇÃO NAS ABAS MODULARES ---
+        if hasattr(self.workforce_tab, 'update_display'):
+            self.workforce_tab.update_display()
+        if hasattr(self.trade_tab, 'update_display'):
+            self.trade_tab.update_display()
+
+        # --- ATUALIZA ABAS QUE AINDA SÃO INTERNAS ---
         self._update_garrison_summary()
-
-        # --- Military tab ---
         self._update_military_tab()
         self._refresh_military_panel()
 
-        # Status
         self.status_label.setText("Ready")
         self.status_label.setStyleSheet("color: #888; font-size: 11px;")
 
@@ -542,7 +508,6 @@ class ProvinceDetailPanel(QWidget):
 
     def _update_military_tab(self):
         self.table_units.setRowCount(0)
-
         prov = self.province
         planet = self.planet
         if not prov or not planet:
@@ -557,12 +522,10 @@ class ProvinceDetailPanel(QWidget):
         for unit_key, count in sorted(counts.items()):
             row = self.table_units.rowCount()
             self.table_units.insertRow(row)
-
             icon = UNIT_ICONS.get(unit_key, "•")
             display_name = unit_key.replace("_", " ").title()
             cat_name = get_unit_category(unit_key)
             cat_icon = CATEGORY_ICONS.get(cat_name, "")
-
             self.table_units.setItem(row, 0, QTableWidgetItem(f"{icon} {display_name}"))
             self.table_units.setItem(row, 1, QTableWidgetItem(str(count)))
             self.table_units.setItem(row, 2, QTableWidgetItem(f"{cat_icon} {cat_name}"))
@@ -575,16 +538,16 @@ class ProvinceDetailPanel(QWidget):
         self.label_mil_queue.setText("📋 Queue: Empty")
 
     def _enqueue_unit(self, unit_key: str):
-        """
-        Tenta enfileirar a produção de uma unidade usando a facade.
-        """
-        prov = self.province
-        planet = self.planet
-        if not prov or not planet or not self.facade:
+        """Tenta enfileirar a produção de uma unidade usando a facade de workforce."""
+        if not self.workforce_facade or not self.province or not self.planet:
             return
 
-        tile = prov.tile_coords
-        owner = prov.owner
+        # Correção do Erro 3: usa self.workforce_facade
+        if not self.province or not self.planet or not self.workforce_facade:
+            return
+
+        tile = self.province.tile_coords
+        owner = self.province.owner
         if not owner:
             self.status_label.setText("❌ No civilization owns this province")
             self.status_label.setStyleSheet("color: #F44336; font-size: 11px;")
@@ -598,90 +561,76 @@ class ProvinceDetailPanel(QWidget):
             return
 
         biome = ""
-        if planet.graph.has_node(tile):
-            biome = planet.graph.nodes[tile].get("bioma", "")
+        if self.planet.graph.has_node(tile):
+            biome = self.planet.graph.nodes[tile].get("bioma", "")
 
         cat_name = stats.category.name if hasattr(stats.category, "name") else "LAND"
 
         if cat_name == "NAVAL":
-            has_water = self._tile_has_water_access(tile, planet)
+            has_water = self._tile_has_water_access(self.planet, tile) # Corrigido para passar planet
             if not has_water:
-                self.status_label.setText(
-                    f"❌ Cannot produce {unit_key}: no water access"
-                )
+                self.status_label.setText(f"❌ Cannot produce {unit_key}: no water access")
                 self.status_label.setStyleSheet("color: #F44336; font-size: 11px;")
                 return
         elif cat_name == "LAND":
             water_biomes = {"Ocean", "Sea"}
             if biome in water_biomes:
-                self.status_label.setText(
-                    f"❌ Cannot produce {unit_key} in {biome}"
-                )
+                self.status_label.setText(f"❌ Cannot produce {unit_key} in {biome}")
                 self.status_label.setStyleSheet("color: #F44336; font-size: 11px;")
                 return
 
+        # Correção do Erro 2: Bloco com indentação correta
         # Lógica de enfileiramento usando a facade
-        ok = self.facade.enqueue_military_unit(unit_key)
+        ok = self.workforce_facade.enqueue_military_unit(unit_key)
 
         if ok:
-            # Feedback visual para o usuário
-            cost = stats.cost
+            stats = UNIT_STATS.get(unit_key)
+            cost = stats.cost if stats else 0
             icon = UNIT_ICONS.get(unit_key, "")
-            self.status_label.setText(
-                f"✅ Queued: {icon} {unit_key.replace('_', ' ').title()} ({cost:.0f}G)"
-            )
+            self.status_label.setText(f"✅ Queued: {icon} {unit_key.replace('_', ' ').title()} ({cost:.0f}G)")
             self.status_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
-
-            # Atualiza a exibição da fila na aba Workforce
-            self.workforce_tab.update_display()
+            if hasattr(self.workforce_tab, 'update_display'):
+                self.workforce_tab.update_display()
         else:
             self.status_label.setText(f"❌ Failed to queue {unit_key}")
             self.status_label.setStyleSheet("color: #F44336; font-size: 11px;")
-
-        # A guarnição atual não muda, então não há necessidade de atualizar
-        # as tabelas de unidades presentes aqui.
-        # self._update_military_tab()
-        # self._update_garrison_summary()
 
     # =====================================================================
     # HELPERS
     # =====================================================================
 
     def _count_units_in_tile(self, tile: tuple[int, int]) -> dict[str, int]:
-        prov = self.province
-        planet = self.planet
-        if not prov or not planet:
+        """Helper para chamar a função de contagem de unidades."""
+        if not self.province or not self.planet:
             return {}
-        owner_id = prov.owner.id if prov.owner else None
-        return count_units_in_tile(planet, tile, owner_id)
+        owner_id = self.province.owner.id if self.province.owner else None
+        return count_units_in_tile(self.planet, tile, owner_id)
 
-    def _tile_has_water_access(self, tile: tuple[int, int], planet: Planet) -> bool:
+    def _tile_has_water_access(self, planet: Planet, tile: tuple[int, int]) -> bool:
+        """Verifica se um tile tem acesso a um corpo d'água adjacente."""
         if not planet.graph.has_node(tile):
             return False
 
-        biome = planet.graph.nodes[tile].get("bioma", "")
         water_biomes = {"Coast", "Sea", "Ocean"}
-
-        if biome in water_biomes:
+        if planet.graph.nodes[tile].get("bioma", "") in water_biomes:
             return True
 
         for neighbor in planet.graph.neighbors(tile):
             nb_biome = planet.graph.nodes[neighbor].get("bioma", "")
             if nb_biome in water_biomes:
                 return True
-
         return False
 
     @staticmethod
     def _get_allowed_categories_for_biome(
-        biome: str, tile: tuple[int, int], planet: Planet
+            biome: str, tile: tuple[int, int], planet: Planet
     ) -> str:
+        """Determina as categorias de unidades (Terrestre, Naval, Aérea) permitidas em um bioma."""
         water_biomes = {"Coast", "Sea", "Ocean"}
-
         allowed = []
 
         if biome not in {"Ocean", "Sea"}:
-            allowed.append("L")
+            allowed.append("L")  # Land
 
         is_water = biome in water_biomes
         has_water_neighbor = False
@@ -690,32 +639,28 @@ class ProvinceDetailPanel(QWidget):
                 if planet.graph.nodes[nb].get("bioma", "") in water_biomes:
                     has_water_neighbor = True
                     break
-        if is_water or has_water_neighbor:
-            allowed.append("N")
 
-        allowed.append("A")
+        if is_water or has_water_neighbor:
+            allowed.append("N")  # Naval
+
+        allowed.append("A")  # Air
 
         return "/".join(allowed) if allowed else "None"
 
     def _emit_go_to(self):
+        """Emite o sinal para centrar a câmera na província."""
         if self.province:
             self.go_to_province_requested.emit(self.province)
 
     @staticmethod
     def _group_style(color: str) -> str:
+        """Retorna o CSS para um QGroupBox estilizado."""
         return f"""
             QGroupBox {{
-                font-weight: bold;
-                border: 1px solid #3a3a3a;
-                border-radius: 5px;
-                margin-top: 10px;
-                padding-top: 10px;
-                background-color: #252525;
+                font-weight: bold; border: 1px solid #3a3a3a; border-radius: 5px;
+                margin-top: 10px; padding-top: 10px; background-color: #252525;
             }}
             QGroupBox::title {{
-                subcontrol-origin: margin;
-                left: 10px;
-                padding: 0 5px;
-                color: {color};
+                subcontrol-origin: margin; left: 10px; padding: 0 5px; color: {color};
             }}
         """
