@@ -7,7 +7,7 @@ import networkx as nx
 from typing import Optional
 
 from config import CIV_CORES
-from core.diplomacy import DiplomacyMatrix
+from core.diplomacy import DiplomacyMatrix, Relation
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
 from core.economy.market import MarketSystem
 from core.economy.production import process_production_queue
@@ -58,32 +58,37 @@ class Planet:
 
         # --- Etapa 2: Geração Geográfica e Lógica ---
         print(" -> Etapa 2: Construindo grafo e definindo geografia...")
-        graph, capitals = definir_geografia(
+
+        graph, capitals_players, capitals_neutrals = definir_geografia(
             poligonos=self.polygons_map,
             fator=self.fator,
             bioma=self.starting_biome,
             seed=self.geography_seed,
         )
+
         self.graph: nx.DiGraph = graph
-        self.capitals: list[tuple[int, int]] = capitals
+        self.capitals_players: list[tuple[int, int]] = list(capitals_players or [])
+        self.capitals_neutrals: list[tuple[int, int]] = list(capitals_neutrals or [])
+        self.capitals: list[tuple[int, int]] = self.capitals_players + self.capitals_neutrals
+
         print(f" -> Geografia concluída. Grafo com {self.graph.number_of_nodes()} nós.")
-        print(f" -> {len(self.capitals)} capitais iniciais selecionadas.")
+        print(
+            f" -> Capitais: {len(self.capitals_players)} players + "
+            f"{len(self.capitals_neutrals)} neutras = {len(self.capitals)} total."
+        )
 
         # --- Etapa 3: Criação das Civilizações (Lógica Corrigida) ---
         print(" -> Etapa 3: Preparando para criar civilizações...")
 
-        # === PASSO 1: INICIALIZAR O MAPA VAZIO ===
         # O mapa DEVE existir ANTES da criação das civilizações, pois elas o consultam.
         self.provinces_by_tile: dict[tuple[int, int], 'Province'] = {}
         print("[Planet] Mapa de províncias por tile inicializado (vazio).")
 
-        # Agora, crie as civilizações. O construtor delas pode acessar o mapa vazio sem erro.
         self.civilizations: list[Civilization] = []
         self._create_initial_civilizations()
         print(f" -> Civilizações concluídas. {len(self.civilizations)} nações foram fundadas.")
 
-        # === PASSO 2: POPULAR O MAPA EXISTENTE ===
-        # Agora que as províncias foram criadas dentro das civilizações, popule o mapa.
+        # Popula o mapa de províncias por tile (redundante mas ok; o construtor já insere a capital)
         for civ in self.civilizations:
             for prov in civ.provinces:
                 self.provinces_by_tile[prov.tile_coords] = prov
@@ -91,6 +96,10 @@ class Planet:
 
         # --- Etapa 4: Runtime Systems (modular / plugável) ---
         self.diplomacy = DiplomacyMatrix()
+
+        # NOVO: diplomacia inicial (players em guerra entre si; neutras neutras)
+        self._init_starting_diplomacy()
+
         self.stacks = StackRepository()
         self.econ_repo = ProvinceEconomyRepository()
         self.economy = MarketSystem(world=PlanetEconomyAdapter(self, self.econ_repo))
@@ -109,15 +118,10 @@ class Planet:
         print("\nObjeto Planeta criado e pronto para uso.")
 
     def process_production(self) -> list[dict]:
-        """
-        Processa a fila de produção para todas as províncias que têm uma.
-        Esta função deve ser chamada a cada turno.
-        """
         reports = []
 
         def add_unit_to_stack_fn(unit_key: str, tile: tuple[int, int]):
-            """Cria uma unidade militar no mapa a partir da produção."""
-            province = self.get_province(tile) # Usando o método corrigido
+            province = self.get_province(tile)
             if not province or not province.owner:
                 print(f"⚠️ Impossível produzir unidade em {tile}: província ou dono não encontrados.")
                 return
@@ -162,16 +166,10 @@ class Planet:
 
     @property
     def player_civ(self) -> Optional[Civilization]:
-        """
-        Propriedade de atalho para retornar a civilização do jogador.
-        Por convenção, é sempre a primeira da lista.
-        """
+        # Convenção: civilização 0 é do jogador humano
         return self.civilizations[0] if self.civilizations else None
 
     def _bootstrap_economy(self) -> None:
-        """
-        Cria estados econômicos iniciais para as províncias existentes.
-        """
         from config.economy import WORKERS_CAPITAL_INICIAL
         from core.economy.production import init_province_economy
 
@@ -192,7 +190,14 @@ class Planet:
             self.econ_repo.upsert(state)
 
     def _create_initial_civilizations(self) -> None:
-        if not self.capitals:
+        """
+        Cria civilizações na ordem:
+          1) players (capitals_players)  -> is_player=True
+          2) neutras (capitals_neutrals) -> is_player=False
+
+        Mantém id=0 como "player humano" por convenção (primeiro player).
+        """
+        if not self.capitals_players and not self.capitals_neutrals:
             print("⚠️  AVISO: Nenhuma capital disponível para criar civilizações.")
             return
 
@@ -200,35 +205,72 @@ class Planet:
         civ_names = list(CIV_CORES.keys())
         rng.shuffle(civ_names)
 
-        for i, capital_coords in enumerate(self.capitals):
-            if i >= len(civ_names):
-                print(f"⚠️ AVISO: Mais capitais ({len(self.capitals)}) do que nomes. Algumas não serão criadas.")
+        # players primeiro
+        idx = 0
+        for capital_coords in self.capitals_players:
+            if idx >= len(civ_names):
+                print("⚠️ AVISO: Sem nomes suficientes para todas as civs (players).")
                 break
 
-            civ_name = civ_names[i]
+            civ_name = civ_names[idx]
             civ_color = CIV_CORES[civ_name]
-            new_civ = Civilization(
-                planeta=self,
-                id=i,
-                name=civ_name,
-                color=civ_color,
-                capital_coords=capital_coords,
+            self.civilizations.append(
+                Civilization(
+                    planeta=self,
+                    id=idx,
+                    name=civ_name,
+                    color=civ_color,
+                    capital_coords=capital_coords,
+                    is_player=True,
+                )
             )
-            self.civilizations.append(new_civ)
+            idx += 1
+
+        # neutras depois
+        for capital_coords in self.capitals_neutrals:
+            if idx >= len(civ_names):
+                print("⚠️ AVISO: Sem nomes suficientes para todas as civs (neutras).")
+                break
+
+            civ_name = civ_names[idx]
+            civ_color = CIV_CORES[civ_name]
+            self.civilizations.append(
+                Civilization(
+                    planeta=self,
+                    id=idx,
+                    name=civ_name,
+                    color=civ_color,
+                    capital_coords=capital_coords,
+                    is_player=False,
+                )
+            )
+            idx += 1
+
+    def _init_starting_diplomacy(self) -> None:
+        """
+        Política inicial (como no antigo):
+          - Players começam em guerra entre si (ENEMY)
+          - Neutras ficam NEUTRAL com todo mundo
+        """
+        players = [c for c in self.civilizations if getattr(c, "is_player", True)]
+        # Se você quiser: neutras aliadas entre si, etc., mude aqui.
+
+        wars_declared = 0
+        for i in range(len(players)):
+            for j in range(i + 1, len(players)):
+                self.diplomacy.set_relation(players[i].id, players[j].id, Relation.ENEMY)
+                wars_declared += 1
+
+        if wars_declared:
+            print(f"⚔️ [Planet] {wars_declared} guerras declaradas entre players.")
 
     def _spawn_initial_stacks(self) -> None:
-        """
-        (Opcional) Cria 1 stack com 1 unidade "infantry" na capital de cada civ.
-        """
         for civ in self.civilizations:
             s = self.stacks.create_stack(owner_id=civ.id, tile=civ.capital_coords)
             self.stacks.add_unit_to_stack(s.uid, "infantry")
 
     def get_polygon_data(self, polygon_2d_coords):
-        """Retorna os dados de um polígono específico do grafo."""
         return self.graph.nodes.get(polygon_2d_coords)
 
     def get_province(self, tile: tuple[int, int]) -> Optional['Province']:
-        """Retorna o objeto Province no tile especificado, ou None se não houver."""
         return self.provinces_by_tile.get(tile)
-

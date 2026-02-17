@@ -8,7 +8,13 @@ from statistics import mean
 from typing import Iterator
 
 import networkx
+from typing import Iterable, Callable
 
+COLONIZAVEIS_BIOMAS = {
+    # terrestres
+    "Meadow", "Forest", "Hills", "Savanna", "Mountains", "Desert",
+    # se no futuro existir outro bioma terrestre, adicione aqui
+}
 
 # CUSTOS BASE
 CUSTOS_BASE = {
@@ -38,6 +44,70 @@ produtividade_base = {
     "Ocean": 1,
     "Ice": 0,
 }
+
+def is_colonizable_biome(biome: str) -> bool:
+    """Biomas colonizáveis = terrestres. (Coast/Sea/Ocean/Ice não)."""
+    return biome in COLONIZAVEIS_BIOMAS
+
+
+def _select_capitals_maximin(
+    geografia: networkx.DiGraph,
+    candidates: list[tuple[int, int]],
+    *,
+    k: int,
+    weight: str = "cust_mob",
+    seed_first: tuple[int, int] | None = None,
+) -> list[tuple[int, int]]:
+    """
+    Farthest-point sampling (maximin):
+    escolhe pontos maximizando a distância mínima até as capitais já escolhidas.
+    Distância = shortest_path_length ponderado por `weight`.
+    """
+    if k <= 0 or not candidates:
+        return []
+
+    cand_set = set(candidates)
+
+    if seed_first is not None and seed_first in cand_set:
+        capitals = [seed_first]
+    else:
+        capitals = [random.choice(candidates)]
+
+    # min_dist[t] = min(dist(t, c) for c in capitals)
+    min_dist: dict[tuple[int, int], float] = {}
+
+    dist0 = networkx.single_source_dijkstra_path_length(geografia, capitals[0], weight=weight)
+    for t in candidates:
+        d = dist0.get(t)
+        min_dist[t] = float(d) if d is not None else -1.0
+
+    while len(capitals) < k:
+        best_tile = None
+        best_score = -1.0
+
+        for t in candidates:
+            if t in capitals:
+                continue
+            score = min_dist.get(t, -1.0)
+            if score > best_score:
+                best_score = score
+                best_tile = t
+
+        if best_tile is None or best_score < 0:
+            break  # sem candidatos conectados/validos
+
+        capitals.append(best_tile)
+
+        dist_new = networkx.single_source_dijkstra_path_length(geografia, best_tile, weight=weight)
+        for t in candidates:
+            d = dist_new.get(t)
+            if d is None:
+                continue
+            d = float(d)
+            old = min_dist.get(t, -1.0)
+            min_dist[t] = d if old < 0 else min(old, d)
+
+    return capitals
 
 
 def seed_from_planet_id(planet_id: str) -> int:
@@ -614,33 +684,63 @@ def _definir_geografia_impl(poligonos, fator: int, bioma: str):
             "Impossível selecionar capitais iniciais."
         )
 
-    # Seleção de capitais: agora determinística sob seed (via random.choice seedado no context manager)
-    lista_capitais = [choice(bioma_escolhido)]
-    while len(lista_capitais) < len(bioma_escolhido) // 2:
-        d2 = {}
-        for candidato in bioma_escolhido:
-            if candidato in lista_capitais:
-                continue
-            d = {}
-            for capital in lista_capitais:
-                # IMPORTANTE: seu grafo usa 'cust_mob' nas arestas.
-                d[capital] = networkx.shortest_path_length(
-                    geografia,
-                    source=candidato,
-                    target=capital,
-                    weight="cust_mob",
-                )
-            d2[candidato] = min(d.values())
+    # ----------------------------
+    # CAPITAIS: players + neutras (até 24) por distância máxima
+    # ----------------------------
 
-        if not d2:
-            print("d2 vazio após filtragem por produtividade")
-            raise ValueError(
-                "O planeta não comporta essa quantidade de civilizações mesmo após filtragem por produtividade!"
-            )
+    # 1) Players: continuam saindo do bioma inicial filtrado por prod > 1.0 (seu comportamento atual)
+    candidates_players = list(bioma_escolhido)  # já filtrado por prod > 1.0
 
-        maior_valor = max(d2.values())
-        chaves_maior_valor = [chave for chave, valor in d2.items() if valor == maior_valor]
-        lista_capitais.append(choice(chaves_maior_valor))
+    if not candidates_players:
+        raise ValueError(
+            "Nenhum tile do bioma especificado tem produtividade agrícola ponderada > 1. "
+            "Impossível selecionar capitais iniciais."
+        )
 
-    print(f"Número de {bioma} com prod > 1 selecionados como candidatos iniciais:", len(bioma_escolhido))
-    return geografia, lista_capitais
+    # Seu comportamento antigo implícito: número de players = len(candidates_players)//2 (mínimo 1).
+    k_players = max(1, len(candidates_players) // 2)
+    k_players = min(24, k_players)
+
+    capitals_players = _select_capitals_maximin(
+        geografia,
+        candidates_players,
+        k=k_players,
+        weight="cust_mob",
+        seed_first=None,
+    )
+
+    # 2) Neutras: preencher até 24 total, em qualquer bioma colonizável (terra),
+    # excluindo as capitais já usadas pelos players.
+    used = set(capitals_players)
+
+    candidates_neutrals = [
+        n for n, attr in geografia.nodes(data=True)
+        if (
+            n not in used
+            and is_colonizable_biome(attr.get("bioma", ""))
+            and float(attr.get("fertilidade", 0.0) or 0.0) > 1.0
+        )
+    ]
+
+    # Fallback se o filtro por fertilidade ficar vazio
+    if not candidates_neutrals:
+        candidates_neutrals = [
+            n for n, attr in geografia.nodes(data=True)
+            if (n not in used and is_colonizable_biome(attr.get("bioma", "")))
+        ]
+
+    total_target = 24
+    remaining = max(0, total_target - len(capitals_players))
+    k_neutrals = min(remaining, len(candidates_neutrals))
+
+    capitals_neutrals = _select_capitals_maximin(
+        geografia,
+        candidates_neutrals,
+        k=k_neutrals,
+        weight="cust_mob",
+        seed_first=None,
+    )
+
+    print(f"[Geography] Capitais: {len(capitals_players)} players + {len(capitals_neutrals)} neutras = {len(capitals_players) + len(capitals_neutrals)}")
+
+    return geografia, capitals_players, capitals_neutrals

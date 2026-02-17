@@ -23,6 +23,10 @@ class Civilization:
     name: str
     color: tuple[int, int, int]
     capital_coords: tuple
+
+    # NOVO: diferencia civ “player” (participa da guerra inicial / pode ter UI/IA etc.)
+    is_player: bool = True
+
     provinces: list[Province] = field(default_factory=list)
 
     # Campos para bandeira
@@ -57,7 +61,7 @@ class Civilization:
 
             # RNG local: mesmo planeta + mesmo civ id → mesma bandeira sempre
             rng = random.Random(hash((self.planeta.id, self.id)))
-            flag_type = rng.randint(0, 82)  # ← era random.randint (global)
+            flag_type = rng.randint(0, 82)
 
             colors = bandeira(
                 self.name,
