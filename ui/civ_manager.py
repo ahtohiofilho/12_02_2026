@@ -1,4 +1,4 @@
-# ui/civ_manager.py
+ # ui/civ_manager.py
 """
 Widget de gerenciamento da civilização do jogador.
 Exibe informações da civ, províncias, economia e forças militares.
@@ -489,7 +489,7 @@ class CivilizationManagerWidget(QWidget):
         # Caminho padrão esperado pelo flag_service
         import os
         flag_path = os.path.join(
-            "assets", "flags", str(planet.id), f"{civ.name}.png"
+            "assets", "worlds", str(planet.id), "flags", f"{civ.name}.png"
         )
 
         if os.path.isfile(flag_path):

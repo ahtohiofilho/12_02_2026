@@ -36,7 +36,7 @@ def get_flag_pixmap(
     if not civ or not planet_id:
         return None
 
-    flag_path = os.path.join("assets", "flags", str(planet_id), f"{civ.name}.png")
+    flag_path = os.path.join("assets", "worlds", str(planet_id), "flags", f"{civ.name}.png")
     if os.path.isfile(flag_path):
         px = QPixmap(flag_path)
         if not px.isNull():

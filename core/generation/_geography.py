@@ -8,7 +8,7 @@ from statistics import mean
 from typing import Iterator
 
 import networkx
-from typing import Iterable, Callable
+from typing import Iterable
 
 COLONIZAVEIS_BIOMAS = {
     # terrestres
@@ -50,6 +50,23 @@ def is_colonizable_biome(biome: str) -> bool:
     return biome in COLONIZAVEIS_BIOMAS
 
 
+def _is_adjacent_to_any(
+    geografia: networkx.DiGraph,
+    tile: tuple[int, int],
+    chosen: Iterable[tuple[int, int]],
+) -> bool:
+    chosen_set = set(chosen)
+    # vizinhos de saída (seu grafo é DiGraph, mas você adiciona arestas para todos os lados;
+    # ainda assim, por segurança, checamos sucessores e predecessores)
+    for nb in geografia.neighbors(tile):
+        if nb in chosen_set:
+            return True
+    for nb in geografia.predecessors(tile):
+        if nb in chosen_set:
+            return True
+    return False
+
+
 def _select_capitals_maximin(
     geografia: networkx.DiGraph,
     candidates: list[tuple[int, int]],
@@ -57,46 +74,82 @@ def _select_capitals_maximin(
     k: int,
     weight: str = "cust_mob",
     seed_first: tuple[int, int] | None = None,
+    forbid_adjacent: bool = True,
+    preselected: list[tuple[int, int]] | None = None,  # <- NOVO
 ) -> list[tuple[int, int]]:
     """
-    Farthest-point sampling (maximin):
-    escolhe pontos maximizando a distância mínima até as capitais já escolhidas.
-    Distância = shortest_path_length ponderado por `weight`.
+    Farthest-point sampling (maximin) com:
+      - forbid_adjacent: impede capitais adjacentes (1 aresta)
+      - preselected: capitais já escolhidas anteriormente (ex.: players),
+                     usadas como restrição e referência de distância mínima.
+    Retorna apenas as capitais NOVAS (não inclui preselected).
     """
     if k <= 0 or not candidates:
         return []
 
+    candidates = list(dict.fromkeys(candidates))
     cand_set = set(candidates)
 
-    if seed_first is not None and seed_first in cand_set:
-        capitals = [seed_first]
+    fixed = list(preselected or [])
+    fixed_set = set(fixed)
+
+    # remove dos candidatos qualquer tile já usado
+    candidates = [t for t in candidates if t not in fixed_set]
+    if not candidates:
+        return []
+
+    # também remove (se forbid_adjacent) qualquer candidato adjacente a alguma capital fixa
+    if forbid_adjacent and fixed:
+        candidates = [t for t in candidates if not _is_adjacent_to_any(geografia, t, fixed)]
+        if not candidates:
+            return []
+
+    # escolhe a primeira nova capital
+    if seed_first is not None and seed_first in cand_set and seed_first not in fixed_set:
+        first = seed_first
+        if forbid_adjacent and fixed and _is_adjacent_to_any(geografia, first, fixed):
+            # seed_first inválido sob a regra global -> ignora e sorteia outro elegível
+            first = random.choice(candidates)
     else:
-        capitals = [random.choice(candidates)]
+        first = random.choice(candidates)
 
-    # min_dist[t] = min(dist(t, c) for c in capitals)
-    min_dist: dict[tuple[int, int], float] = {}
+    chosen_new: list[tuple[int, int]] = [first]
+    all_chosen = fixed + chosen_new  # usado para distância e adjacência global
 
-    dist0 = networkx.single_source_dijkstra_path_length(geografia, capitals[0], weight=weight)
-    for t in candidates:
-        d = dist0.get(t)
-        min_dist[t] = float(d) if d is not None else -1.0
+    # min_dist[t] = min(dist(t, c) for c in all_chosen)
+    min_dist: dict[tuple[int, int], float] = {t: -1.0 for t in candidates}
 
-    while len(capitals) < k:
+    # inicializa min_dist com base em TODAS as capitais já escolhidas (fixed + first)
+    for c in all_chosen:
+        dist_c = networkx.single_source_dijkstra_path_length(geografia, c, weight=weight)
+        for t in candidates:
+            d = dist_c.get(t)
+            if d is None:
+                continue
+            d = float(d)
+            old = min_dist.get(t, -1.0)
+            min_dist[t] = d if old < 0 else min(old, d)
+
+    while len(chosen_new) < k:
         best_tile = None
         best_score = -1.0
 
         for t in candidates:
-            if t in capitals:
+            if t in fixed_set or t in chosen_new:
                 continue
+            if forbid_adjacent and _is_adjacent_to_any(geografia, t, all_chosen):
+                continue
+
             score = min_dist.get(t, -1.0)
             if score > best_score:
                 best_score = score
                 best_tile = t
 
         if best_tile is None or best_score < 0:
-            break  # sem candidatos conectados/validos
+            break
 
-        capitals.append(best_tile)
+        chosen_new.append(best_tile)
+        all_chosen.append(best_tile)
 
         dist_new = networkx.single_source_dijkstra_path_length(geografia, best_tile, weight=weight)
         for t in candidates:
@@ -107,7 +160,7 @@ def _select_capitals_maximin(
             old = min_dist.get(t, -1.0)
             min_dist[t] = d if old < 0 else min(old, d)
 
-    return capitals
+    return chosen_new
 
 
 def seed_from_planet_id(planet_id: str) -> int:
@@ -707,22 +760,21 @@ def _definir_geografia_impl(poligonos, fator: int, bioma: str):
         k=k_players,
         weight="cust_mob",
         seed_first=None,
+        forbid_adjacent=True,
+        preselected=None,
     )
 
-    # 2) Neutras: preencher até 24 total, em qualquer bioma colonizável (terra),
-    # excluindo as capitais já usadas pelos players.
     used = set(capitals_players)
 
     candidates_neutrals = [
         n for n, attr in geografia.nodes(data=True)
         if (
-            n not in used
-            and is_colonizable_biome(attr.get("bioma", ""))
-            and float(attr.get("fertilidade", 0.0) or 0.0) > 1.0
+                n not in used
+                and is_colonizable_biome(attr.get("bioma", ""))
+                and float(attr.get("fertilidade", 0.0) or 0.0) > 1.0
         )
     ]
 
-    # Fallback se o filtro por fertilidade ficar vazio
     if not candidates_neutrals:
         candidates_neutrals = [
             n for n, attr in geografia.nodes(data=True)
@@ -739,6 +791,8 @@ def _definir_geografia_impl(poligonos, fator: int, bioma: str):
         k=k_neutrals,
         weight="cust_mob",
         seed_first=None,
+        forbid_adjacent=True,
+        preselected=capitals_players,
     )
 
     print(f"[Geography] Capitais: {len(capitals_players)} players + {len(capitals_neutrals)} neutras = {len(capitals_players) + len(capitals_neutrals)}")
