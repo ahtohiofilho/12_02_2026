@@ -1,4 +1,3 @@
-# ui/province/workforce_tab.py
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
@@ -29,9 +28,11 @@ class WorkforceTabWidget(QWidget):
     allocation_changed = Signal(float, float)  # food_pct, ore_pct
     queue_changed = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, controller, parent=None):
         super().__init__(parent)
+
         self.facade = None
+        self.controller = controller
 
         # debounce do slider
         self._update_timer = QTimer(self)

@@ -1,5 +1,6 @@
-# ui/scene.py
 from __future__ import annotations
+
+from typing import Optional, Sequence, Tuple
 
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
 from PySide6.QtCore import Qt
@@ -10,19 +11,19 @@ from core.rendering.planet_renderer import PlanetRenderer
 from core.rendering.camera import Camera
 
 
+Tile = Tuple[int, int]
+
+
 class SceneWidget(QOpenGLWidget):
     """
     Cena 3D (OpenGL moderno) que renderiza:
       - Planeta (PlanetRenderer)
-      - Bandeiras por civilização/províncias (via CivFlag dentro do PlanetRenderer)
+        - inclui overlay de rotas (RouteOverlayRenderer) se integrado no PlanetRenderer
+        - inclui bandeiras (CivFlag) se integrado no PlanetRenderer
 
-    Integração esperada no PlanetRenderer:
-      - self.civ_flag_renderer (instância de core.rendering.civ_flag.CivFlag)
-      - método: set_civilization_data(planet)
-      - no render(): chamar civ_flag_renderer.render(view, projection) após o planeta
-      - cleanup_gl(): limpar recursos do civ_flag_renderer
-
-    Observação: este módulo não cria shaders nem buffers de bandeira; só dispara os hooks.
+    Regra de arquitetura:
+      - Controller chama métodos de SceneWidget (fachada): set_planet_data(), set_route_path(), etc.
+      - SceneWidget encaminha para PlanetRenderer e pede update().
     """
 
     def __init__(self, controller, parent=None):
@@ -45,7 +46,7 @@ class SceneWidget(QOpenGLWidget):
             "Ice": (245, 255, 245),
         }
 
-        # (Opcional) pede um depth buffer melhor pro overlay (bandeiras) ficar estável
+        # (Opcional) depth/stencil melhores para overlays
         fmt = self.format()
         fmt.setDepthBufferSize(24)
         fmt.setStencilBufferSize(8)
@@ -55,7 +56,10 @@ class SceneWidget(QOpenGLWidget):
         # fmt.setSamples(4)
         # self.setFormat(fmt)
 
-    def set_planet_data(self, planet_object):
+    # ----------------------------
+    # Fachada para o Controller
+    # ----------------------------
+    def set_planet_data(self, planet_object) -> None:
         """
         Recebe Planet e atualiza:
           - geometria + cores do planeta
@@ -74,22 +78,37 @@ class SceneWidget(QOpenGLWidget):
         self.renderer.set_tile_colors(tile_colors)
 
         # --- Bandeiras (Civilizations/Provinces) ---
-        # Hook: PlanetRenderer deve repassar pro CivFlag internamente.
         if hasattr(self.renderer, "set_civilization_data"):
-            try:
-                self.renderer.set_civilization_data(planet_object)
-            except TypeError:
-                # Se sua assinatura antiga ainda for set_civilization_data(planeta)
-                self.renderer.set_civilization_data(planet_object)
+            self.renderer.set_civilization_data(planet_object)
 
+        # Marcar para (re)criar recursos GL no próximo frame
         self.renderer.dados_atualizados = True
         self.update()
 
-    def initializeGL(self):
+    def set_route_path(self, path_tiles: Optional[Sequence[Tile]]) -> None:
+        """
+        Define/limpa a rota a ser renderizada no planeta.
+        - path_tiles: lista de (x,y) ou None para limpar
+        """
+        if not hasattr(self, "renderer") or self.renderer is None:
+            return
+        if hasattr(self.renderer, "set_route_path"):
+            self.renderer.set_route_path(path_tiles)
+        else:
+            # fallback bem defensivo: se você ainda não criou set_route_path no PlanetRenderer
+            if hasattr(self.renderer, "route_renderer") and self.renderer.route_renderer is not None:
+                self.renderer.route_renderer.state.set_path(path_tiles)
+
+        self.update()
+
+    # ----------------------------
+    # Ciclo de vida OpenGL (QOpenGLWidget)
+    # ----------------------------
+    def initializeGL(self) -> None:
         gl.glClearColor(0.05, 0.05, 0.1, 1.0)
         gl.glEnable(gl.GL_DEPTH_TEST)
 
-        # Transparência (bandeiras). O renderer de bandeiras também pode habilitar/desabilitar.
+        # Transparência (overlays como bandeiras/rota/highlight)
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
@@ -97,12 +116,12 @@ class SceneWidget(QOpenGLWidget):
         self.camera = Camera(distance=15.0)
         self.camera.set_aspect_ratio(self.width(), self.height())
 
-    def resizeGL(self, w, h):
+    def resizeGL(self, w: int, h: int) -> None:
         gl.glViewport(0, 0, w, h)
         if self.camera:
             self.camera.set_aspect_ratio(w, h)
 
-    def paintGL(self):
+    def paintGL(self) -> None:
         if not self.camera:
             return
 
@@ -114,15 +133,16 @@ class SceneWidget(QOpenGLWidget):
         view_matrix = self.camera.get_view_matrix()
         projection_matrix = self.camera.get_projection_matrix()
 
-        # PlanetRenderer deve renderizar planeta e, se integrado, bandeiras (CivFlag)
         self.renderer.render(view_matrix, projection_matrix)
 
-    # --- Controles de Câmera ---
-    def mousePressEvent(self, event: QMouseEvent):
+    # ----------------------------
+    # Controles de câmera
+    # ----------------------------
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.LeftButton:
             self.last_mouse_pos = event.position()
 
-    def mouseMoveEvent(self, event: QMouseEvent):
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if (event.buttons() & Qt.LeftButton) and self.last_mouse_pos is not None and self.camera is not None:
             dx = event.position().x() - self.last_mouse_pos.x()
             dy = event.position().y() - self.last_mouse_pos.y()
@@ -133,7 +153,7 @@ class SceneWidget(QOpenGLWidget):
             self.last_mouse_pos = event.position()
             self.update()
 
-    def wheelEvent(self, event):
+    def wheelEvent(self, event) -> None:
         if not self.camera:
             return
         delta = event.angleDelta().y()

@@ -58,9 +58,11 @@ def get_flag_pixmap(
 class TradeTabWidget(QWidget):
     """Widget para exibição de vendas e recebimentos da província."""
 
-    def __init__(self, parent=None):
+    def __init__(self, controller, parent=None):
         super().__init__(parent)
+
         self.facade: ProvinceTradeFacade | None = None
+        self.controller = controller
 
         # Controla quem ativou o hover (evita limpar overlay ao mudar entre filhos)
         self._hover_owner: QWidget | None = None
@@ -690,3 +692,4 @@ class TradeTabWidget(QWidget):
         self.label_food_receipts.setText("0.0")
         self.label_ore_receipts.setText("0.0")
         self.label_total_receipts.setText("0.0")
+

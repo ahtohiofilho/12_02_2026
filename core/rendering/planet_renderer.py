@@ -2,6 +2,7 @@ import numpy as np
 import OpenGL.GL as gl
 import glm
 from core.rendering.civ_flag import CivFlag
+from core.rendering.route_overlay import RouteOverlayRenderer
 # from .color_picking import PickingSystem # Comentado por enquanto
 # from .tile_units_renderer import TileUnitsRenderer # Comentado por enquanto
 
@@ -24,6 +25,7 @@ class PlanetRenderer:
         self.civ_flag_renderer = CivFlag()
         #self.picking_system = None
         self.controller = controller
+        self.route_renderer = RouteOverlayRenderer()
 
         # Renderer unificado de unidades (militares + trabalhadores)
         #self.tile_units_renderer = TileUnitsRenderer(controller)
@@ -205,14 +207,14 @@ class PlanetRenderer:
 
     def init_gl(self):
         """
-        Inicializa os recursos OpenGL do PlanetRenderer e (se existir) do renderer de bandeiras (CivFlag).
+        Inicializa os recursos OpenGL do PlanetRenderer e sub-renderers (CivFlag + RouteOverlay se existir).
 
         Política:
-          - PlanetRenderer continua dono do pipeline do planeta (VAO/VBO/EBO + shader + textura 1D).
-          - Se houver self.civ_flag_renderer (CivFlag), ele é inicializado aqui também,
-            garantindo que tudo seja criado no mesmo contexto OpenGL.
+          - PlanetRenderer é dono do pipeline do planeta (VAO/VBO/EBO + shader + textura 1D + highlight).
+          - Sub-renderers (bandeiras/rotas) são inicializados aqui também (best-effort),
+            garantindo criação no mesmo contexto OpenGL (QOpenGLWidget).
 
-        Retorna True se o planeta inicializou; bandeiras são "best-effort" (não falham o planeta).
+        Retorna True se o planeta inicializou; sub-renderers não derrubam o planeta se falharem.
         """
         print("\n" + "=" * 50)
         print(f"🔧 PlanetRenderer.init_gl INICIADO (ID: {id(self)})")
@@ -225,7 +227,6 @@ class PlanetRenderer:
         if len(self.all_vertices) == 0:
             print("❌ ERRO CRÍTICO: all_vertices VAZIO!")
             return False
-
         if len(self.all_indices) == 0:
             print("❌ ERRO CRÍTICO: all_indices VAZIO!")
             return False
@@ -236,13 +237,11 @@ class PlanetRenderer:
 
         try:
             # Limpeza se já foi inicializado anteriormente (ou se restou lixo)
-            # OBS: se você chamar cleanup_gl aqui, garanta que ele não dependa de self.initializado
             self.cleanup_gl()
 
             # === SHADER PRINCIPAL DO PLANETA ===
             vertex_shader = self.compile_shader(self.vertex_shader_source, gl.GL_VERTEX_SHADER)
             fragment_shader = self.compile_shader(self.fragment_shader_source, gl.GL_FRAGMENT_SHADER)
-
             if vertex_shader == 0 or fragment_shader == 0:
                 print("❌ Falha ao compilar shaders básicos")
                 return False
@@ -259,13 +258,12 @@ class PlanetRenderer:
                 gl.glDeleteProgram(self.shader_program)
                 self.shader_program = 0
                 return False
-            else:
-                print(f"✅ Shader principal compilado (ID={self.shader_program})")
 
+            print(f"✅ Shader principal compilado (ID={self.shader_program})")
             gl.glDeleteShader(vertex_shader)
             gl.glDeleteShader(fragment_shader)
 
-            # Cache de uniform locations
+            # Cache de uniforms
             self.uniform_locations = {
                 "uView": gl.glGetUniformLocation(self.shader_program, "uView"),
                 "uProjection": gl.glGetUniformLocation(self.shader_program, "uProjection"),
@@ -286,28 +284,28 @@ class PlanetRenderer:
             self.vao = gl.glGenVertexArrays(1)
             gl.glBindVertexArray(self.vao)
 
-            # VBO para vértices
+            # VBO: posições
             self.vbo_vertices = gl.glGenBuffers(1)
             gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_vertices)
             gl.glBufferData(gl.GL_ARRAY_BUFFER, self.all_vertices.nbytes, self.all_vertices, gl.GL_STATIC_DRAW)
             gl.glVertexAttribPointer(0, 3, gl.GL_FLOAT, gl.GL_FALSE, 0, None)
             gl.glEnableVertexAttribArray(0)
 
-            # VBO para índices de tile (integer attribute)
+            # VBO: tileIndex (integer attribute)
             self.vbo_tile_indices = gl.glGenBuffers(1)
             gl.glBindBuffer(gl.GL_ARRAY_BUFFER, self.vbo_tile_indices)
             gl.glBufferData(gl.GL_ARRAY_BUFFER, self.all_tile_indices.nbytes, self.all_tile_indices, gl.GL_STATIC_DRAW)
             gl.glVertexAttribIPointer(1, 1, gl.GL_UNSIGNED_INT, 0, None)
             gl.glEnableVertexAttribArray(1)
 
-            # EBO para índices de elementos
+            # EBO: índices
             self.ebo_indices = gl.glGenBuffers(1)
             gl.glBindBuffer(gl.GL_ELEMENT_ARRAY_BUFFER, self.ebo_indices)
             gl.glBufferData(gl.GL_ELEMENT_ARRAY_BUFFER, self.all_indices.nbytes, self.all_indices, gl.GL_STATIC_DRAW)
 
             gl.glBindVertexArray(0)
 
-            # === TEXTURA DE CORES (1D) ===
+            # === TEXTURA 1D DE CORES ===
             self.tile_color_texture = gl.glGenTextures(1)
             gl.glActiveTexture(gl.GL_TEXTURE0)
             gl.glBindTexture(gl.GL_TEXTURE_1D, self.tile_color_texture)
@@ -337,8 +335,9 @@ class PlanetRenderer:
             # === SHADER DE HIGHLIGHT ===
             self._init_highlight_shader()
 
-            # === (NOVO) INICIALIZAR BANDEIRAS (CivFlag), SE EXISTIR ===
-            # Importante: isso roda no contexto GL correto (QOpenGLWidget).
+            # === SUB-RENDERERS (best-effort) ===
+
+            # (1) Bandeiras (CivFlag)
             if hasattr(self, "civ_flag_renderer") and self.civ_flag_renderer is not None:
                 try:
                     ok = self.civ_flag_renderer.init_gl()
@@ -347,8 +346,18 @@ class PlanetRenderer:
                     else:
                         print("⚠️ CivFlag.init_gl falhou (bandeiras desativadas por enquanto)")
                 except Exception as e:
-                    # best-effort: não derruba o planeta
                     print(f"⚠️ Exceção ao inicializar CivFlag: {e}")
+
+            # (2) Rotas (RouteOverlay) — se você adicionou self.route_renderer no __init__
+            if hasattr(self, "route_renderer") and self.route_renderer is not None:
+                try:
+                    ok = self.route_renderer.init_gl()
+                    if ok:
+                        print("✅ RouteOverlay.init_gl concluído")
+                    else:
+                        print("⚠️ RouteOverlay.init_gl falhou (rotas desativadas por enquanto)")
+                except Exception as e:
+                    print(f"⚠️ Exceção ao inicializar RouteOverlay: {e}")
 
             # === VERIFICAÇÃO DE ERROS OPENGL ===
             error = gl.glGetError()
@@ -454,7 +463,8 @@ class PlanetRenderer:
         Pipeline de renderização:
             1. Planeta (tiles coloridos)
             2. Highlight de tile (hover)
-            3. Bandeiras das civilizações (CivFlag)
+            3. Overlay de rotas (RouteOverlayRenderer)
+            4. Bandeiras das civilizações (CivFlag)
         """
         # Verificação de inicialização
         if not self.initializado:
@@ -488,6 +498,7 @@ class PlanetRenderer:
         gl.glDrawElements(gl.GL_TRIANGLES, self.index_count, gl.GL_UNSIGNED_INT, None)
 
         gl.glBindVertexArray(0)
+        gl.glUseProgram(0)
 
         # === 2. HIGHLIGHT DE TILE ===
         if hover_highlight_tile is not None:
@@ -498,7 +509,27 @@ class PlanetRenderer:
                 color=(1.0, 0.843, 0.0, 0.5),
             )
 
-        # === 3. BANDEIRAS DAS CIVILIZAÇÕES ===
+        # === 3. ROUTE OVERLAY ===
+        if hasattr(self, "route_renderer") and self.route_renderer is not None:
+            if hasattr(self, "centros_3d_tiles") and self.centros_3d_tiles:
+                # Recalcula pontos + sobe VBO quando state.dirty=True
+                self.route_renderer.update_if_dirty(
+                    self.centros_3d_tiles,
+                    lift=0.04,
+                    steps_per_segment=8,
+                    flip_x=False,  # consistente com seu mundo espelhado
+                )
+
+                # Desenha a linha (se vertex_count >= 2)
+                self.route_renderer.render(
+                    view_matrix,
+                    projection_matrix,
+                    color=(0.1, 0.9, 1.0, 1.0),
+                    width=3.0,
+                    depth_test=True,
+                )
+
+        # === 4. BANDEIRAS DAS CIVILIZAÇÕES ===
         if self.civ_flag_renderer.instances and self.civ_flag_renderer.initialized:
             self.civ_flag_renderer.render(view_matrix, projection_matrix)
 
@@ -681,3 +712,7 @@ class PlanetRenderer:
 
         self.initializado = False
         print("🧹 [PlanetRenderer] Recursos limpos")
+
+    def set_route_path(self, path_tiles) -> None:
+        if hasattr(self, "route_renderer") and self.route_renderer is not None:
+            self.route_renderer.state.set_path(path_tiles)

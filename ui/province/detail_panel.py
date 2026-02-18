@@ -50,12 +50,14 @@ class ProvinceDetailPanel(QWidget):
     back_requested = Signal()
     go_to_province_requested = Signal(object)  # emite Province
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
+    def __init__(self, controller, parent=None):  # 1. Adicione 'controller' e mantenha 'parent=None'
+        super().__init__(parent)  # 2. Passe 'parent' para o super()
+
         self.province: Province | None = None
         self.planet: Planet | None = None
+        self.controller = controller  # 3. Armazene o controller
 
-        # Facades para as diferentes áreas de lógica
+        # Facades...
         self.workforce_facade: ProvinceWorkforceFacade | None = None
         self.trade_facade: ProvinceTradeFacade | None = None
 
@@ -129,11 +131,11 @@ class ProvinceDetailPanel(QWidget):
         self.tab_widget.addTab(self.tab_overview, "📊 Overview")
 
         # Tab 1: Workforce (instância da classe dedicada)
-        self.workforce_tab = WorkforceTabWidget()
+        self.workforce_tab = WorkforceTabWidget(self.controller)
         self.tab_widget.addTab(self.workforce_tab, "👷 Workforce")
 
         # Tab 2: Trade (instância da classe dedicada)
-        self.trade_tab = TradeTabWidget()
+        self.trade_tab = TradeTabWidget(self.controller)
         self.tab_widget.addTab(self.trade_tab, "🔄 Trade")
 
         # Tab 3: Military (continua aqui, mas poderia ser modularizado)

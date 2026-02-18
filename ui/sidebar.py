@@ -25,7 +25,7 @@ class SideBar(QWidget):
         self.stacked_widget.addWidget(self.civ_manager_view)
 
         # Índice 2: Detalhe da província
-        self.province_detail = ProvinceDetailPanel()
+        self.province_detail = ProvinceDetailPanel(self.controller)
         self.stacked_widget.addWidget(self.province_detail)
 
         # === CONEXÕES INTERNAS ===

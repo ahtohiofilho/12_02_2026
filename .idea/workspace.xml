@@ -4,11 +4,16 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Incluí as civilizações neutras.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais.">
+      <change afterPath="$PROJECT_DIR$/core/rendering/route_overlay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/generation/_geography.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/generation/_geography.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/civ_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/civ_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/province/detail_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/detail_panel.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/province/trade_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/trade_tab.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/province/workforce_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/workforce_tab.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -190,7 +195,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771340580228</updated>
     </task>
-    <option name="localTasksCounter" value="15" />
+    <task id="LOCAL-00015" summary="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais.">
+      <option name="closed" value="true" />
+      <created>1771342451172</created>
+      <option name="number" value="00015" />
+      <option name="presentableId" value="LOCAL-00015" />
+      <option name="project" value="LOCAL" />
+      <updated>1771342451172</updated>
+    </task>
+    <option name="localTasksCounter" value="16" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -208,6 +221,7 @@
     <MESSAGE value="Fiz uma refatoração em vários pontos da lógica." />
     <MESSAGE value="Implementei parcialmente a aba Trade." />
     <MESSAGE value="Incluí as civilizações neutras." />
-    <option name="LAST_COMMIT_MESSAGE" value="Incluí as civilizações neutras." />
+    <MESSAGE value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
+    <option name="LAST_COMMIT_MESSAGE" value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
   </component>
 </project>
