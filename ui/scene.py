@@ -10,7 +10,6 @@ import OpenGL.GL as gl
 from core.rendering.planet_renderer import PlanetRenderer
 from core.rendering.camera import Camera
 
-
 Tile = Tuple[int, int]
 
 
@@ -52,6 +51,8 @@ class SceneWidget(QOpenGLWidget):
         fmt.setStencilBufferSize(8)
         self.setFormat(fmt)
 
+        self._camera_calibrated_planet_id: str | None = None
+
         # Se quiser MSAA:
         # fmt.setSamples(4)
         # self.setFormat(fmt)
@@ -64,6 +65,7 @@ class SceneWidget(QOpenGLWidget):
         Recebe Planet e atualiza:
           - geometria + cores do planeta
           - dados das bandeiras (capitais/províncias), se o renderer suportar
+          - distância inicial da câmera = 3x raio do planeta (uma vez por planeta/id)
         """
         if not planet_object:
             return
@@ -81,6 +83,34 @@ class SceneWidget(QOpenGLWidget):
         if hasattr(self.renderer, "set_civilization_data"):
             self.renderer.set_civilization_data(planet_object)
 
+        # --- Câmera: aplicar calibração UMA VEZ por planeta ---
+        pid = str(getattr(planet_object, "id", "") or "")
+
+        # Se não existir id, cai para "calibra sempre" (ou você pode escolher não calibrar).
+        should_calibrate = (
+                self.camera is not None
+                and (
+                        (pid and pid != getattr(self, "_camera_calibrated_planet_id", None))
+                        or (not pid)
+                )
+        )
+
+        if should_calibrate:
+            radius = float(getattr(planet_object, "fator", 0.0) or 0.0)
+            if radius > 0.0:
+                self.camera.set_distance_from_planet_radius(
+                    radius,
+                    distance_factor=3.0,  # três vezes o raio
+                    min_factor=1.2,  # zoom in não atravessa o planeta
+                    max_factor=10.0,  # zoom out folgado
+                    near_factor=0.02,  # escala com o planeta
+                    far_factor=50.0,  # escala com o planeta
+                )
+                self.camera.set_aspect_ratio(self.width(), self.height())
+
+                if pid:
+                    self._camera_calibrated_planet_id = pid
+
         # Marcar para (re)criar recursos GL no próximo frame
         self.renderer.dados_atualizados = True
         self.update()
@@ -92,6 +122,7 @@ class SceneWidget(QOpenGLWidget):
         """
         if not hasattr(self, "renderer") or self.renderer is None:
             return
+
         if hasattr(self.renderer, "set_route_path"):
             self.renderer.set_route_path(path_tiles)
         else:
@@ -112,8 +143,9 @@ class SceneWidget(QOpenGLWidget):
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
-        # Inicializa a câmera orbital
-        self.camera = Camera(distance=15.0)
+        # Inicializa a câmera orbital (placeholder).
+        # A distância real será recalibrada quando set_planet_data() for chamado.
+        self.camera = Camera(distance=5.0)
         self.camera.set_aspect_ratio(self.width(), self.height())
 
     def resizeGL(self, w: int, h: int) -> None:

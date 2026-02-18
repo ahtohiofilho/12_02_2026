@@ -4,16 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais.">
-      <change afterPath="$PROJECT_DIR$/core/rendering/route_overlay.py" afterDir="false" />
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="As rotas estão sendo renderizadas normalmente">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/province/detail_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/detail_panel.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/province/trade_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/trade_tab.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/province/workforce_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/workforce_tab.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/camera.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/camera.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -203,7 +198,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771342451172</updated>
     </task>
-    <option name="localTasksCounter" value="16" />
+    <task id="LOCAL-00016" summary="As rotas estão sendo renderizadas normalmente">
+      <option name="closed" value="true" />
+      <created>1771383679112</created>
+      <option name="number" value="00016" />
+      <option name="presentableId" value="LOCAL-00016" />
+      <option name="project" value="LOCAL" />
+      <updated>1771383679112</updated>
+    </task>
+    <option name="localTasksCounter" value="17" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -222,6 +225,7 @@
     <MESSAGE value="Implementei parcialmente a aba Trade." />
     <MESSAGE value="Incluí as civilizações neutras." />
     <MESSAGE value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
-    <option name="LAST_COMMIT_MESSAGE" value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
+    <MESSAGE value="As rotas estão sendo renderizadas normalmente" />
+    <option name="LAST_COMMIT_MESSAGE" value="As rotas estão sendo renderizadas normalmente" />
   </component>
 </project>

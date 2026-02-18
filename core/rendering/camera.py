@@ -83,13 +83,98 @@ class Camera:
 
         self._update_position()
 
+    # ------------------------------------------------------------------
+    # NOVO: calibração por raio do planeta
+    # ------------------------------------------------------------------
+
+    def set_distance_from_planet_radius(
+        self,
+        radius: float,
+        *,
+        distance_factor: float = 2.2,
+        min_factor: float = 1.05,
+        max_factor: float = 6.0,
+        near_factor: float = 0.02,
+        far_factor: float = 25.0,
+        clamp_current_angles: bool = True,
+    ) -> None:
+        """
+        Ajusta distância inicial, limites e clipping (near/far) com base no raio do planeta.
+
+        - distance = radius * distance_factor
+        - min/max_distance = radius * min_factor / max_factor
+        - near/far proporcionais ao raio (importante para evitar clipping/z-fighting)
+
+        Não muda o foco (origem) nem aplica flip.
+        """
+        r = float(radius)
+        if not math.isfinite(r) or r <= 1e-8:
+            return
+
+        # raio base do sistema (mantém sua semântica "fator")
+        self.fator = r
+
+        # distância e limites
+        self.distance = r * float(distance_factor)
+        self.min_distance = r * float(min_factor)
+        self.max_distance = r * float(max_factor)
+
+        # garante coerência caso fatores venham errados
+        if self.max_distance < self.min_distance:
+            self.max_distance, self.min_distance = self.min_distance, self.max_distance
+
+        # clipping plane escalado
+        self.near = max(0.001, r * float(near_factor))
+        self.far = max(self.near + 1.0, r * float(far_factor))
+
+        # opcional: garantir que azimuth/elevation respeitam clamps existentes
+        if clamp_current_angles:
+            if self.elevation < self.min_elevation:
+                self.elevation = self.min_elevation
+            elif self.elevation > self.max_elevation:
+                self.elevation = self.max_elevation
+
+        # marca projeção suja e recalcula posição
+        self._projection_dirty = True
+        self._update_position()
+
+    @staticmethod
+    def estimate_radius_from_centers_map(centers_map: dict) -> float:
+        """
+        Estima o raio do planeta a partir de centers_map (tile -> glm.vec3 ou sequência xyz).
+        Usa mediana para robustez.
+        """
+        if not centers_map:
+            return 0.0
+
+        rs: list[float] = []
+        for c in centers_map.values():
+            try:
+                x, y, z = float(c.x), float(c.y), float(c.z)
+            except Exception:
+                try:
+                    x, y, z = float(c[0]), float(c[1]), float(c[2])
+                except Exception:
+                    continue
+
+            rr = math.sqrt(x * x + y * y + z * z)
+            if rr > 1e-8 and math.isfinite(rr):
+                rs.append(rr)
+
+        if not rs:
+            return 0.0
+
+        rs.sort()
+        return float(rs[len(rs) // 2])
+
+    # ------------------------------------------------------------------
+
     def _update_position(self) -> None:
         ce = math.cos(self.elevation)
         se = math.sin(self.elevation)
         sa = math.sin(self.azimuth)
         ca = math.cos(self.azimuth)
 
-        # Orbital em torno da origem
         x = self.distance * ce * sa
         y = self.distance * se
         z = self.distance * ce * ca
@@ -97,9 +182,7 @@ class Camera:
         self.position[...] = (x, y, z)
         self.target[...] = (0.0, 0.0, 0.0)
 
-        # Base da câmera
         self.front = _normalize(self.target - self.position)
-        # Sistema destro (OpenGL): right = front x world_up
         self.right = _normalize(np.cross(self.front, self._world_up))
         self.up = _normalize(np.cross(self.right, self.front))
 
@@ -109,7 +192,6 @@ class Camera:
         self.azimuth += float(delta_azimuth)
         self.elevation += float(delta_elevation)
 
-        # Clamp elevação
         if self.elevation < self.min_elevation:
             self.elevation = self.min_elevation
         elif self.elevation > self.max_elevation:
@@ -158,27 +240,20 @@ class Camera:
             self._projection_dirty = True
 
     def look_at_tile(self, point_3d) -> None:
-        """
-        Reorienta a câmera para que a direção (a partir da origem) aponte para o tile,
-        mantendo o alvo na origem. NÃO aplica flip de eixo.
-        """
         if hasattr(point_3d, "x"):
             x, y, z = float(point_3d.x), float(point_3d.y), float(point_3d.z)
         else:
             x, y, z = (float(point_3d[0]), float(point_3d[1]), float(point_3d[2]))
 
-        # Direção na esfera (unitária)
         norm = math.sqrt(x * x + y * y + z * z)
         if norm == 0.0:
             return
 
         dx, dy, dz = x / norm, y / norm, z / norm
 
-        # Ângulos orbitais
         self.azimuth = math.atan2(dx, dz)
         self.elevation = math.asin(dy)
 
-        # Clamp elevação
         if self.elevation < self.min_elevation:
             self.elevation = self.min_elevation
         elif self.elevation > self.max_elevation:
