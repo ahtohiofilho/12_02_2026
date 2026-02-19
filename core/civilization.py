@@ -15,6 +15,10 @@ class Province:
     is_capital: bool = False
     name: str = "Província"
 
+    # Economia (estoque + fluxo por turno)
+    treasury: float = 0.0          # caixa acumulado (começa em 0)
+    last_output: float = 0.0       # (opcional) output do último turno, útil p/ UI/debug
+
 
 @dataclass
 class Civilization:

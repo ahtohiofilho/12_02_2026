@@ -21,6 +21,10 @@ from config.economy import (
 from core.economy.province_repo import ProvinceEconomyState
 from core.production.queue import QueueItem, QueueItemType
 
+# ... imports que já existem ...
+from core.economy.models import ResultadoComercio
+from core.economy.province_repo import ProvinceEconomyRepository
+
 Tile = tuple[int, int]
 
 
@@ -226,3 +230,29 @@ def process_production_queue(
     result["items_pending"] = len(queue_items) - 1
 
     return result
+
+def apply_province_income(
+    repo: ProvinceEconomyRepository,
+    resultado: ResultadoComercio,
+) -> list[dict]:
+    """
+    Commit da receita do turno no caixa (treasury) de cada província.
+
+    Receita vem do ResultadoComercio (alimento+minério):
+        revenue(tile) = resultado.get_receita_total(tile)
+
+    Efeito:
+      - econ.treasury += revenue
+      - econ.last_revenue = revenue
+    """
+    reports: list[dict] = []
+    if repo is None or resultado is None:
+        return reports
+
+    for econ in repo.all():
+        revenue = float(resultado.get_receita_total(econ.tile) or 0.0)
+        econ.treasury += revenue
+        econ.last_revenue = revenue
+        reports.append({"tile": econ.tile, "revenue": revenue, "treasury": float(econ.treasury)})
+
+    return reports

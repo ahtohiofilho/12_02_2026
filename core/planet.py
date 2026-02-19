@@ -10,7 +10,7 @@ from config import CIV_CORES
 from core.diplomacy import DiplomacyMatrix, Relation
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
 from core.economy.market import MarketSystem
-from core.economy.production import process_production_queue
+from core.economy.production import process_production_queue, apply_province_income
 from core.economy.province_repo import ProvinceEconomyRepository
 from core.production.repo import ProductionQueueRepository
 from core.stacks import StackRepository
@@ -118,8 +118,28 @@ class Planet:
         print("\nObjeto Planeta criado e pronto para uso.")
 
     def process_production(self) -> list[dict]:
-        reports = []
+        reports: list[dict] = []
 
+        # ============================================================
+        # 1) RECEITA DO TURNO (acumula no caixa antes de gastar na fila)
+        # ============================================================
+        try:
+            # calcula comércio/receitas do turno
+            resultado = self.economy.calcular_equilibrio(forcar_recalculo=True)
+
+            # aplica (commit) no treasury de cada ProvinceEconomyState
+            # (requer: core.economy.production.apply_province_income)
+            income_reports = apply_province_income(self.econ_repo, resultado)
+
+            # opcional: anexar ao retorno (para debug/UI)
+            # reports.extend({"income": r} for r in income_reports)
+        except Exception as e:
+            # não quebra o turno se economia falhar; só não deposita receita
+            print(f"⚠️ [Planet.process_production] Falha ao aplicar receita do turno: {e}")
+
+        # ============================================================
+        # 2) PRODUÇÃO DA FILA (gasta do caixa e produz worker/unidade)
+        # ============================================================
         def add_unit_to_stack_fn(unit_key: str, tile: tuple[int, int]):
             province = self.get_province(tile)
             if not province or not province.owner:
@@ -156,7 +176,7 @@ class Planet:
                 queue_items=prov_queue.items,
                 remove_first_fn=remove_first_item_from_queue,
                 food_pref=workforce_state.food_pref,
-                add_unit_fn=add_unit_to_stack_fn
+                add_unit_fn=add_unit_to_stack_fn,
             )
 
             if report.get("produced"):

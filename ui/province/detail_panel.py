@@ -64,6 +64,13 @@ class ProvinceDetailPanel(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._init_ui()
 
+    def update_display(self) -> None:
+        """
+        Atualiza o painel com base no estado atual do planet/econ_repo.
+        Seguro chamar a qualquer momento (ex: após avanço de turno).
+        """
+        self._load_province_data()
+
     def set_province(self, province: Province, planet: Planet):
         """Define a província e o planeta, cria as facades e atualiza as abas."""
         self.province = province
@@ -240,6 +247,19 @@ class ProvinceDetailPanel(QWidget):
         self.label_ore_type.setStyleSheet("color: #aaa;")
         self.label_ore_type.setAlignment(Qt.AlignRight)
         layout_economy.addWidget(self.label_ore_type, 4, 1)
+
+        # Caixa e receita do último turno (acumulado)
+        layout_economy.addWidget(QLabel("💰 Cash:"), 5, 0)
+        self.label_cash = QLabel("0.0")
+        self.label_cash.setStyleSheet("color: #FFD700; font-weight: bold;")
+        self.label_cash.setAlignment(Qt.AlignRight)
+        layout_economy.addWidget(self.label_cash, 5, 1)
+
+        layout_economy.addWidget(QLabel("📈 Last Revenue:"), 6, 0)
+        self.label_last_revenue = QLabel("0.0")
+        self.label_last_revenue.setStyleSheet("color: #aaa;")
+        self.label_last_revenue.setAlignment(Qt.AlignRight)
+        layout_economy.addWidget(self.label_last_revenue, 6, 1)
 
         layout.addWidget(group_economy)
 
@@ -467,6 +487,17 @@ class ProvinceDetailPanel(QWidget):
             self.label_food_type.setText(econ.food_type or "—")
             self.label_ore.setText(f"{econ.ore_output:.1f}")
             self.label_ore_type.setText(econ.ore_type or "—")
+            # Caixa e receita do último turno
+            self.label_cash.setText(f"{float(econ.treasury):.1f}")
+            self.label_last_revenue.setText(f"{float(econ.last_revenue):.1f}")
+        else:
+            self.label_workers.setText("0")
+            self.label_food.setText("0.0")
+            self.label_food_type.setText("—")
+            self.label_ore.setText("0.0")
+            self.label_ore_type.setText("—")
+            self.label_cash.setText("—")
+            self.label_last_revenue.setText("—")
 
         # --- DISPARA ATUALIZAÇÃO NAS ABAS MODULARES ---
         if hasattr(self.workforce_tab, 'update_display'):
@@ -536,8 +567,24 @@ class ProvinceDetailPanel(QWidget):
 
     def _refresh_military_panel(self):
         """Atualiza os labels de cash e fila de produção."""
-        self.label_mil_cash.setText("💰 Cash: N/A")
-        self.label_mil_queue.setText("📋 Queue: Empty")
+        if not self.province or not self.planet:
+            self.label_mil_cash.setText("💰 Cash: —")
+            self.label_mil_queue.setText("📋 Queue: —")
+            return
+
+        tile = self.province.tile_coords
+        econ = self.planet.econ_repo.get(tile)
+        cash = float(econ.treasury) if econ else 0.0
+
+        q = self.planet.production_queues.get(tile) if hasattr(self.planet.production_queues, "get") else None
+        if q is None:
+            # fallback: acessar dict interno (como você fez no Planet.process_production)
+            q = self.planet.production_queues._by_tile.get(tile)
+
+        queue_len = len(getattr(q, "items", []) or [])
+
+        self.label_mil_cash.setText(f"💰 Cash: {cash:.1f}")
+        self.label_mil_queue.setText(f"📋 Queue: {queue_len} item(s)")
 
     def _enqueue_unit(self, unit_key: str):
         """Tenta enfileirar a produção de uma unidade usando a facade de workforce."""
@@ -593,6 +640,7 @@ class ProvinceDetailPanel(QWidget):
             self.status_label.setStyleSheet("color: #4CAF50; font-size: 11px;")
             if hasattr(self.workforce_tab, 'update_display'):
                 self.workforce_tab.update_display()
+            self.update_display()
         else:
             self.status_label.setText(f"❌ Failed to queue {unit_key}")
             self.status_label.setStyleSheet("color: #F44336; font-size: 11px;")

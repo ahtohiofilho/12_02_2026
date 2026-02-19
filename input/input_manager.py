@@ -106,10 +106,10 @@ class InputManager(QObject):
 
         # Rotação orbital
         if self.keys_pressed.get(Qt.Key_A):
-            camera.orbit(self.rotation_speed, 0)  # Esquerda
+            camera.orbit(-self.rotation_speed, 0)  # Esquerda
             moved = True
         if self.keys_pressed.get(Qt.Key_D):
-            camera.orbit(-self.rotation_speed, 0)  # Direita
+            camera.orbit(self.rotation_speed, 0)  # Direita
             moved = True
         if self.keys_pressed.get(Qt.Key_W):
             camera.orbit(0, self.rotation_speed)  # Para cima

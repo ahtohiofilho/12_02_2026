@@ -158,26 +158,47 @@ class Controller:
         print("\n🏭 Processando produção e economia...")
         production_reports = self.game.process_production()
         if production_reports:
-            for report in production_reports:
-                print(f"   -> Produzido: {report.get('produced')}")
+            for r in production_reports:
+                print(f"   -> Produzido: {r.get('produced')}")
         else:
             print("   -> Nenhuma produção concluída neste turno.")
 
+        # Importante:
+        # - Agora o Planet.process_production() já calcula comércio e aplica receitas (treasury/last_revenue).
+        # - Então invalidar_cache aqui é opcional; mantenho por segurança caso outras telas chamem economia depois.
         self.game.economy.invalidar_cache()
         print("💰 Economia e produção processadas.")
 
         print("\n⚔️ Resolvendo movimentos e combates...")
         engine = self.game.turn_engine
-        report = engine.resolve_turn()
+        turn_report = engine.resolve_turn()
 
-        print(f"\n⏩ Turno {report.turn_number} resolvido!")
-        print(f"   Ordens de movimento processadas: {report.total_orders}")
-        print(f"   Batalhas ocorridas: {report.total_battles}")
+        print(f"\n⏩ Turno {turn_report.turn_number} resolvido!")
+        print(f"   Ordens de movimento processadas: {turn_report.total_orders}")
+        print(f"   Batalhas ocorridas: {turn_report.total_battles}")
 
         print("\nController: Atualizando a UI após o avanço do turno...")
-        if self.window and hasattr(self.window.sidebar, "civ_manager_view"):
+
+        # 1) Atualiza o civ manager (lista, stats etc.)
+        if self.window and hasattr(self.window, "sidebar") and hasattr(self.window.sidebar, "civ_manager_view"):
             self.window.sidebar.civ_manager_view.update_display()
 
+        # 2) Se o painel de província estiver aberto, atualiza também (cash/last_revenue/fila/unidades)
+        if self.window and hasattr(self.window, "sidebar") and hasattr(self.window.sidebar, "province_detail"):
+            sb = self.window.sidebar
+            try:
+                is_province_panel_open = hasattr(sb, "stacked_widget") and sb.stacked_widget.currentIndex() == 2
+                if is_province_panel_open:
+                    # requer: ProvinceDetailPanel.update_display() (wrapper público que chama _load_province_data)
+                    if hasattr(sb.province_detail, "update_display"):
+                        sb.province_detail.update_display()
+                    else:
+                        # fallback (caso você ainda não tenha criado update_display)
+                        sb.province_detail._load_province_data()
+            except Exception as e:
+                print(f"⚠️ Falha ao atualizar painel de província: {e}")
+
+        # 3) Re-render
         if self.scene:
             self.scene.update()
 

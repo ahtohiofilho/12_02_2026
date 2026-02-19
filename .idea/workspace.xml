@@ -4,11 +4,14 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="As rotas estão sendo renderizadas normalmente">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Corrigi a posição inicial da câmera.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/rendering/camera.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/camera.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/civilization.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/civilization.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/economy/production.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/economy/production.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/input/input_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/input/input_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/province/detail_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/detail_panel.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -206,7 +209,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771383679112</updated>
     </task>
-    <option name="localTasksCounter" value="17" />
+    <task id="LOCAL-00017" summary="Corrigi a posição inicial da câmera.">
+      <option name="closed" value="true" />
+      <created>1771385387085</created>
+      <option name="number" value="00017" />
+      <option name="presentableId" value="LOCAL-00017" />
+      <option name="project" value="LOCAL" />
+      <updated>1771385387085</updated>
+    </task>
+    <option name="localTasksCounter" value="18" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -226,6 +237,7 @@
     <MESSAGE value="Incluí as civilizações neutras." />
     <MESSAGE value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
     <MESSAGE value="As rotas estão sendo renderizadas normalmente" />
-    <option name="LAST_COMMIT_MESSAGE" value="As rotas estão sendo renderizadas normalmente" />
+    <MESSAGE value="Corrigi a posição inicial da câmera." />
+    <option name="LAST_COMMIT_MESSAGE" value="Corrigi a posição inicial da câmera." />
   </component>
 </project>
