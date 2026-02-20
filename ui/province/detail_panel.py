@@ -24,7 +24,6 @@ from ui.widgets import compact_button
 from ui.province.military_ui import (
     UNIT_ICONS,
     UNIT_COLORS,
-    UNIT_ABBREVIATIONS,
     CATEGORY_ICONS,
     UNITS_BY_CATEGORY,
     count_units_in_tile,
@@ -37,6 +36,7 @@ from ui.province.workforce_tab import WorkforceTabWidget
 from ui.province.trade_tab import TradeTabWidget
 from core.workforce.facade import ProvinceWorkforceFacade
 from core.trade.facade import ProvinceTradeFacade
+from ui.province.combat_preview import CombatPreviewWidget
 
 
 # ===================================================
@@ -148,6 +148,10 @@ class ProvinceDetailPanel(QWidget):
         # Tab 3: Military (continua aqui, mas poderia ser modularizado)
         self.tab_military = self._create_military_tab()
         self.tab_widget.addTab(self.tab_military, "⚔️ Military")
+
+        # Tab 4: Aba de análise de chance de vitória
+        self.tab_combat = CombatPreviewWidget()
+        self.tab_widget.addTab(self.tab_combat, "🎲 Combat")
 
         layout.addWidget(self.tab_widget, 1)
 
@@ -284,6 +288,12 @@ class ProvinceDetailPanel(QWidget):
     # =====================================================================
 
     def _create_military_tab(self) -> QWidget:
+        """
+        Military tab:
+          - Recruitment buttons grouped by category (LAND/NAVAL/AIR)
+          - Units present in the province (table + summary)
+          - Uses ui.province.military_ui as the single source of truth for icons/colors/display names.
+        """
         widget = QWidget()
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -325,7 +335,15 @@ class ProvinceDetailPanel(QWidget):
 
         scroll_layout.addWidget(info_frame)
 
-        # --- Recrutamento por categoria ---
+        # --- Recruitment by category ---
+        # NOTE: icons/colors/names come from ui.province.military_ui
+        from ui.province.military_ui import (
+            UNIT_ICONS,
+            UNIT_COLORS,
+            UNITS_BY_CATEGORY,
+            get_unit_display_name,
+        )
+
         category_meta = {
             "LAND": ("⚔️ Land Units", "#4CAF50"),
             "NAVAL": ("⚓ Naval Units", "#2196F3"),
@@ -353,17 +371,20 @@ class ProvinceDetailPanel(QWidget):
                 if not stats:
                     continue
 
-                icon = UNIT_ICONS.get(unit_key, "?")
-                abbrev = UNIT_ABBREVIATIONS.get(unit_key, unit_key[:3].upper())
+                icon = UNIT_ICONS.get(unit_key, "•")
                 color = UNIT_COLORS.get(unit_key, "#888")
-                cost = stats.cost
+                cost = float(stats.cost)
 
-                btn = QPushButton(f"{icon} {abbrev}\n{cost:.0f}G")
-                btn.setMinimumHeight(50)
+                display_name = get_unit_display_name(unit_key)
+
+                btn = QPushButton(f"{icon} {display_name}\n{cost:.0f}G")
+                btn.setMinimumHeight(54)
                 btn.setToolTip(
-                    f"{unit_key.replace('_', ' ').title()}\n"
+                    f"{display_name}\n"
+                    f"Key: {unit_key}\n"
                     f"Cost: {cost:.0f} Globi\n"
-                    f"Efficacy: {stats.eficacia}\n"
+                    f"Efficacy: {float(stats.eficacia):.2f}\n"
+                    f"Movement: {int(stats.movement)}\n"
                     f"Click to add to production queue"
                 )
                 btn.setStyleSheet(f"""
@@ -373,7 +394,8 @@ class ProvinceDetailPanel(QWidget):
                         border-radius: 4px;
                         color: #ddd;
                         font-size: 11px;
-                        padding: 5px;
+                        padding: 6px;
+                        text-align: center;
                     }}
                     QPushButton:hover {{
                         background-color: #3a3a3a;
@@ -381,6 +403,7 @@ class ProvinceDetailPanel(QWidget):
                     }}
                     QPushButton:pressed {{
                         background-color: {color};
+                        color: #111;
                     }}
                     QPushButton:disabled {{
                         background-color: #1a1a1a;
@@ -389,9 +412,8 @@ class ProvinceDetailPanel(QWidget):
                     }}
                 """)
 
-                btn.clicked.connect(
-                    lambda checked, k=unit_key: self._enqueue_unit(k)
-                )
+                # IMPORTANT: capture unit_key in default arg (avoid late-binding lambda bug)
+                btn.clicked.connect(lambda checked=False, k=unit_key: self._enqueue_unit(k))
 
                 grid.addWidget(btn, row, col)
                 self.recruit_buttons[unit_key] = btn
@@ -403,7 +425,9 @@ class ProvinceDetailPanel(QWidget):
 
             scroll_layout.addWidget(group)
 
-        # --- Unidades presentes ---
+        # --- Units present ---
+        from ui.province.military_ui import CATEGORY_ICONS  # for the table display
+
         group_units = QGroupBox("🗺️ Units in Province")
         group_units.setStyleSheet(self._group_style("#64B5F6"))
         layout_units = QVBoxLayout(group_units)

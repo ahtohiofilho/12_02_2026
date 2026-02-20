@@ -4,14 +4,16 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Corrigi a posição inicial da câmera.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementei o tesouro da província.">
+      <change afterPath="$PROJECT_DIR$/ui/province/combat_preview.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/civilization.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/civilization.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/economy/production.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/economy/production.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/input/input_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/input/input_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/unit_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/unit_stats.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/combat/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/combat/modifiers.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/modifiers.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/combat/resolver.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/resolver.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/combat/tile_battle.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/tile_battle.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/province/detail_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/detail_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/province/military_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/military_ui.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -51,21 +53,21 @@
     <option name="sortByType" value="true" />
     <option name="sortKey" value="BY_TYPE" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.concatenador.executor": "Run",
-    "Python.main.executor": "Run",
-    "Python.market.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master",
-    "ignore.virus.scanning.warn.message": "true",
-    "last_opened_file_path": "C:/Users/ahtoh/PycharmProjects/ga",
-    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.concatenador.executor&quot;: &quot;Run&quot;,
+    &quot;Python.main.executor&quot;: &quot;Run&quot;,
+    &quot;Python.market.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/ahtoh/PycharmProjects/ga&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -217,7 +219,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771385387085</updated>
     </task>
-    <option name="localTasksCounter" value="18" />
+    <task id="LOCAL-00018" summary="Implementei o tesouro da província.">
+      <option name="closed" value="true" />
+      <created>1771509850896</created>
+      <option name="number" value="00018" />
+      <option name="presentableId" value="LOCAL-00018" />
+      <option name="project" value="LOCAL" />
+      <updated>1771509850896</updated>
+    </task>
+    <option name="localTasksCounter" value="19" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -238,6 +248,7 @@
     <MESSAGE value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
     <MESSAGE value="As rotas estão sendo renderizadas normalmente" />
     <MESSAGE value="Corrigi a posição inicial da câmera." />
-    <option name="LAST_COMMIT_MESSAGE" value="Corrigi a posição inicial da câmera." />
+    <MESSAGE value="Implementei o tesouro da província." />
+    <option name="LAST_COMMIT_MESSAGE" value="Implementei o tesouro da província." />
   </component>
 </project>
