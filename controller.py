@@ -198,9 +198,17 @@ class Controller:
             except Exception as e:
                 print(f"⚠️ Falha ao atualizar painel de província: {e}")
 
-        # 3) Re-render
+        # ==========================================
+        # 3) Re-render do 3D (AGORA COM AS UNIDADES)
+        # ==========================================
         if self.scene:
-            self.scene.update()
+            # Se o método novo existir na SceneWidget, chamamos ele (que já puxa as unidades e faz o update)
+            if hasattr(self.scene, "update_units_data"):
+                self.scene.update_units_data(self.game)
+            else:
+                # Fallback de segurança original
+                self.scene.update()
+
 
     def set_hover_trade_route(self, path_tiles: Sequence[Tuple[int, int]]) -> None:
         """Chamado pela UI ao detectar hover em rota comercial"""

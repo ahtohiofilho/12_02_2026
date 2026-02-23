@@ -4,7 +4,7 @@ import glm
 from core.rendering.civ_flag import CivFlag
 from core.rendering.route_overlay import RouteOverlayRenderer
 # from .color_picking import PickingSystem # Comentado por enquanto
-# from .tile_units_renderer import TileUnitsRenderer # Comentado por enquanto
+from core.rendering.tile_units_renderer import TileUnitsRenderer
 
 class PlanetRenderer:
     def __init__(self, controller):
@@ -28,8 +28,7 @@ class PlanetRenderer:
         self.route_renderer = RouteOverlayRenderer()
 
         # Renderer unificado de unidades (militares + trabalhadores)
-        #self.tile_units_renderer = TileUnitsRenderer(controller)
-        #print(f"🔴 TileUnitsRenderer criado com ID: {id(self.tile_units_renderer)}")
+        self.tile_units_renderer = TileUnitsRenderer()
 
         # Recursos para highlight
         self.highlight_shader_program = 0
@@ -359,6 +358,14 @@ class PlanetRenderer:
                 except Exception as e:
                     print(f"⚠️ Exceção ao inicializar RouteOverlay: {e}")
 
+            # (3) Unidades Militares e Workers
+            if hasattr(self, "tile_units_renderer") and self.tile_units_renderer is not None:
+                try:
+                    ok = self.tile_units_renderer.init_gl()
+                    if ok: print("✅ TileUnitsRenderer.init_gl concluído")
+                except Exception as e:
+                    print(f"⚠️ Exceção ao inicializar TileUnitsRenderer: {e}")
+
             # === VERIFICAÇÃO DE ERROS OPENGL ===
             error = gl.glGetError()
             if error != gl.GL_NO_ERROR:
@@ -532,6 +539,13 @@ class PlanetRenderer:
         # === 4. BANDEIRAS DAS CIVILIZAÇÕES ===
         if self.civ_flag_renderer.instances and self.civ_flag_renderer.initialized:
             self.civ_flag_renderer.render(view_matrix, projection_matrix)
+
+        # === 5. UNIDADES MILITARES E TRABALHADORES ===
+        if hasattr(self, "tile_units_renderer") and getattr(self.tile_units_renderer, "initialized", False):
+            # Fallback de segurança: se a câmera não for passada, assume uma posição padrão
+            cam_pos = camera_position if camera_position is not None else [0.0, 0.0, 5.0]
+
+            self.tile_units_renderer.render(view_matrix, projection_matrix, cam_pos)
 
     def _render_tile_highlight(self, tile_coords, view_matrix, projection_matrix,
                                color=(1.0, 0.843, 0.0, 0.5)):

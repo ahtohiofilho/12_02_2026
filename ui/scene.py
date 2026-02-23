@@ -83,6 +83,14 @@ class SceneWidget(QOpenGLWidget):
         if hasattr(self.renderer, "set_civilization_data"):
             self.renderer.set_civilization_data(planet_object)
 
+        # ==========================================================
+        # --- Unidades Militares e Trabalhadores ---
+        # Repassa o estado atual do jogo para atualizar as posições.
+        # ==========================================================
+        if hasattr(self.renderer, "tile_units_renderer") and self.renderer.tile_units_renderer is not None:
+            # O planet_object contém a propriedade .stacks com as unidades!
+            self.renderer.tile_units_renderer.set_data(planet_object, self.renderer.centros_3d_tiles)
+
         # --- Câmera: aplicar calibração UMA VEZ por planeta ---
         pid = str(getattr(planet_object, "id", "") or "")
 
@@ -165,7 +173,17 @@ class SceneWidget(QOpenGLWidget):
         view_matrix = self.camera.get_view_matrix()
         projection_matrix = self.camera.get_projection_matrix()
 
-        self.renderer.render(view_matrix, projection_matrix)
+        # ==========================================================
+        # Pegar a posição da câmera para o Billboarding (Sprites 2D em 3D)
+        # Assumindo que sua classe Camera possui uma propriedade `position` ou similar
+        # ==========================================================
+        cam_pos = getattr(self.camera, 'position', [0.0, 0.0, 5.0])
+        # Se for um método getter em vez de propriedade:
+        if callable(cam_pos):
+            cam_pos = cam_pos()
+
+        # Atualizamos a chamada para passar o cam_pos!
+        self.renderer.render(view_matrix, projection_matrix, cam_pos)
 
     # ----------------------------
     # Controles de câmera
@@ -192,3 +210,16 @@ class SceneWidget(QOpenGLWidget):
         zoom_sensitivity = -0.01
         self.camera.zoom(delta * zoom_sensitivity)
         self.update()
+
+    def update_units_data(self, planet_object) -> None:
+        """
+        Lê novamente as pilhas (stacks) do planeta e atualiza
+        os sprites 3D das unidades e trabalhadores.
+        """
+        if not planet_object:
+            return
+
+        if hasattr(self.renderer, "tile_units_renderer") and self.renderer.tile_units_renderer is not None:
+            self.renderer.tile_units_renderer.set_data(planet_object, self.renderer.centros_3d_tiles)
+
+        self.update()  # Manda a placa de vídeo desenhar o novo quadro
