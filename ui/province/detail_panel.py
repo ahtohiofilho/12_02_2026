@@ -23,11 +23,8 @@ from config.unit_stats import UNIT_STATS
 from ui.widgets import compact_button
 from ui.province.military_ui import (
     UNIT_ICONS,
-    UNIT_COLORS,
     CATEGORY_ICONS,
-    UNITS_BY_CATEGORY,
     count_units_in_tile,
-    group_counts_by_category,
     format_units_by_category,
     get_unit_category,
 )

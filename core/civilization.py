@@ -33,6 +33,8 @@ class Civilization:
 
     provinces: list[Province] = field(default_factory=list)
 
+    workers_purchased: int = 0
+
     # Campos para bandeira
     flag_colors: tuple = field(init=False)
     flag_type: int = field(init=False)

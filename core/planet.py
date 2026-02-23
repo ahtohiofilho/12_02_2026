@@ -179,7 +179,7 @@ class Planet:
                 add_unit_fn=add_unit_to_stack_fn,
             )
 
-            if report.get("produced"):
+            if (report.get("completed_items", 0) or 0) > 0 or (report.get("paid_total", 0.0) or 0.0) > 0:
                 reports.append(report)
 
         return reports

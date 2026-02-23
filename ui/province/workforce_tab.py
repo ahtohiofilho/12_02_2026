@@ -71,59 +71,72 @@ class WorkforceTabWidget(QWidget):
             self._set_empty_state()
             return
 
-        # Nomes de recursos
+        # ---- Resource names ----
         food_name, ore_name = self.facade.resource_names()
         self.label_food_name.setText(f"🌾 {food_name}:")
         self.label_ore_name.setText(f"⛏️ {ore_name}:")
         self.label_food_revenue_name.setText("🌾 Food:")
         self.label_ore_revenue_name.setText("⛏️ Ore:")
 
-        # Contratação
+        # ---- Hiring ----
         info = self.facade.worker_info()
         self.label_workers_current.setText(f"Current: {info.current} workers")
-        self.label_worker_cost.setText(f"Cost: {info.next_cost:.1f}G")
+        self.label_worker_cost.setText(f"Next worker: {info.next_cost:.1f}G (paid over turns)")
         self.btn_buy_worker.setEnabled(True)
 
-        # Slider (preferência) — só atualiza se ambos existem
-        if self._has_food and self._has_ore:
+        # ---- Allocation UI (consistent with core ints) ----
+        has_food = bool(self._has_food)
+        has_ore = bool(self._has_ore)
+        has_both = has_food and has_ore
+
+        if has_both:
             pref_pct = int(self._allocation_preference_pct)
+
             self.slider_allocation.blockSignals(True)
             self.slider_allocation.setValue(pref_pct)
             self.slider_allocation.blockSignals(False)
 
             self.progress_food.setValue(pref_pct)
             self.progress_ore.setValue(100 - pref_pct)
-
-            farmers = round(info.current * (pref_pct / 100.0))
-            miners = info.current - farmers
-            self.label_farmers.setText(f"{food_name}: {farmers}")
-            self.label_miners.setText(f"{ore_name}: {miners}")
-
-        elif self._has_food:
+        elif has_food:
             self.progress_food.setValue(100)
             self.progress_ore.setValue(0)
-            self.label_farmers.setText(f"{food_name}: {info.current}")
-            self.label_miners.setText(f"{ore_name}: 0")
-
-        elif self._has_ore:
+        elif has_ore:
             self.progress_food.setValue(0)
             self.progress_ore.setValue(100)
-            self.label_farmers.setText(f"{food_name}: 0")
-            self.label_miners.setText(f"{ore_name}: {info.current}")
 
-        # Output
+        # Sempre use os valores reais do core (evita divergência com split_workers)
+        self.label_farmers.setText(f"{food_name}: {info.workers_food}")
+        self.label_miners.setText(f"{ore_name}: {info.workers_ore}")
+
+        # ---- Output ----
         food_out, ore_out = self.facade.outputs()
         self.label_food_output.setText(f"{food_out:.1f}")
         self.label_ore_output.setText(f"{ore_out:.1f}")
         self.label_total_output.setText(f"{(food_out + ore_out):.1f}")
 
-        # Revenue
+        # ---- Revenue ----
         total_rev = self.facade.revenue_total()
         self.label_food_revenue.setText("—")
         self.label_ore_revenue.setText("—")
         self.label_total_revenue.setText(f"${total_rev:.2f}")
 
-        # Fila
+        # =========================================================
+        # ---- Correção do status visual de compra (hire status) ----
+        # =========================================================
+        from core.production.queue import QueueItemType
+
+        # Pega todos os itens da fila
+        queue_items = self.facade.queue_items()
+
+        # Verifica se ainda há algum worker aguardando na fila
+        has_worker_in_queue = any(it.item_type == QueueItemType.WORKER for it in queue_items)
+
+        if not has_worker_in_queue:
+            # A mágica: quando a fila esvaziar no avanço do turno, ele apaga a mensagem de sucesso!
+            self.label_hire_status.setText("")
+
+        # ---- Queue ----
         self._update_queue_display()
 
     # ---------------- Biome adaptation ----------------
@@ -179,10 +192,10 @@ class WorkforceTabWidget(QWidget):
         self.btn_buy_worker.setEnabled(False)
         self.queue_list.clear()
         self.label_queue_count.setText("Empty queue")
-        self.label_queue_cost.setText("Total: 0.0G")
+        self.label_queue_cost.setText("Remaining: 0.0G")
         self.label_queue_status.setText("")
         self.label_workers_current.setText("Current: —")
-        self.label_worker_cost.setText("Cost: —")
+        self.label_worker_cost.setText("Next worker: —")
         self.label_farmers.setText("Food: —")
         self.label_miners.setText("Ore: —")
         self.label_food_output.setText("0.0")
@@ -280,7 +293,7 @@ class WorkforceTabWidget(QWidget):
 
         info_layout.addStretch()
 
-        self.label_worker_cost = QLabel("Cost: —")
+        self.label_worker_cost = QLabel("Next worker: —")
         self.label_worker_cost.setStyleSheet("color: #FFD700;")
         info_layout.addWidget(self.label_worker_cost)
         layout.addLayout(info_layout)
@@ -317,7 +330,7 @@ class WorkforceTabWidget(QWidget):
         self.label_queue_count.setStyleSheet("color: #aaa;")
         header_layout.addWidget(self.label_queue_count)
         header_layout.addStretch()
-        self.label_queue_cost = QLabel("Total: 0.0G")
+        self.label_queue_cost = QLabel("Remaining: 0.0G")
         self.label_queue_cost.setStyleSheet("color: #FFD700; font-weight: bold;")
         header_layout.addWidget(self.label_queue_cost)
         layout.addLayout(header_layout)
@@ -518,14 +531,19 @@ class WorkforceTabWidget(QWidget):
             return
 
         items = self.facade.queue_items()
-        total_cost = self.facade.queue_total_cost()
+
+        # NOVO: preferir remaining/paid (se você implementou na facade)
+        total_cost = float(self.facade.queue_total_cost() or 0.0)  # compat
+        total_paid = float(getattr(self.facade, "queue_total_paid", lambda: 0.0)() or 0.0)
+        total_remaining = float(getattr(self.facade, "queue_total_remaining", lambda: total_cost - total_paid)() or 0.0)
 
         if items:
             self.label_queue_count.setText(f"{len(items)} item(s) queued")
-            self.label_queue_cost.setText(f"Total: {total_cost:.1f}G")
+            # Troque "Total" por "Remaining" (mais correto no gradual)
+            self.label_queue_cost.setText(f"Remaining: {total_remaining:.1f}G  (Paid: {total_paid:.1f}G)")
         else:
             self.label_queue_count.setText("Empty queue")
-            self.label_queue_cost.setText("Total: 0.0G")
+            self.label_queue_cost.setText("Remaining: 0.0G")
 
         for it in items:
             if it.item_type == QueueItemType.WORKER:
@@ -538,9 +556,22 @@ class WorkforceTabWidget(QWidget):
                 name = unit_key.replace("_", " ").title()
                 color = UNIT_COLORS.get(unit_key, "#aaa")
 
-            text = f"{icon} {name} — {float(it.cost or 0.0):.1f}G"
+            cost = float(getattr(it, "cost", 0.0) or 0.0)
+            paid = float(getattr(it, "paid", 0.0) or 0.0)
+            remaining = float(getattr(it, "remaining", max(0.0, cost - paid)) or 0.0)
+            progress = 0.0
+            if cost > 1e-9:
+                progress = min(1.0, max(0.0, paid / cost))
+
+            # Texto atualizado para refletir pagamento gradual
+            text = (
+                f"{icon} {name} — "
+                f"{paid:.1f}/{cost:.1f}G ({int(progress * 100)}%) "
+                f"rem {remaining:.1f}G"
+            )
+
             li = QListWidgetItem(text)
-            li.setData(Qt.UserRole, it.uid)
+            li.setData(Qt.UserRole, it.uid)  # continua usando uid (bom!)
             li.setForeground(QColor(color))
             self.queue_list.addItem(li)
 

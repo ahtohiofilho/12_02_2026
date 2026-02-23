@@ -145,21 +145,14 @@ def init_province_economy(
 # CUSTO DE TRABALHADOR
 # ============================================================
 
-def worker_cost(current_workers: int, workers_in_queue: int = 0) -> float:
+def worker_cost(workers_purchased: int) -> float:
     """
-    Calcula o custo do PRÓXIMO trabalhador a ser enfileirado.
-
-    Regra: custo_base * (2 ^ workers_já_na_fila)
-    Ex com base=5: fila=0 → 5, fila=1 → 10, fila=2 → 20
-
-    Args:
-        current_workers: workers atuais (reservado para uso futuro)
-        workers_in_queue: quantos WORKER já estão na fila
-
-    Returns:
-        Custo em Globi.
+    Calcula o custo do PRÓXIMO trabalhador.
+    Baseia-se exclusivamente no número de workers que a civilização já comprou
+    ao longo de toda a partida, não importando se estão vivos ou mortos.
     """
-    return CUSTO_TRABALHADOR_BASE * (2 ** workers_in_queue)
+    return CUSTO_TRABALHADOR_BASE * (2 ** workers_purchased)
+
 
 
 # ============================================================
@@ -175,19 +168,19 @@ def process_production_queue(
     add_unit_fn=None,
 ) -> dict:
     """
-    Processa a fila de produção de uma província: NO MÁXIMO 1 item por turno.
+    Processa a fila de produção de uma província (pay gradually):
+      - Pode gastar TODO o dinheiro da tesouraria do tile no turno.
+      - Produz quantos itens der, seguindo FIFO estrito:
+          * só passa para o próximo item quando o atual completar
+          * se não completar o primeiro, para (não “pula” para o segundo)
 
     Regras:
-      - Se não tem dinheiro para o primeiro item, para.
-      - WORKER: incrementa workers, recalcula produção.
-      - MILITARY: chama add_unit_fn (se fornecido).
-
-    Args:
-        econ: estado econômico (será mutado: treasury, workers)
-        queue_items: lista ordenada de itens na fila
-        remove_first_fn: callable que remove o primeiro item da fila
-        food_pref: preferência de alocação atual
-        add_unit_fn: callable(unit_key, tile) para spawnar unidade militar
+      - Cada QueueItem tem:
+          cost = custo total
+          paid = quanto já foi pago
+          remaining = cost - paid
+      - WORKER: ao completar, incrementa workers e recalcula produção.
+      - MILITARY: ao completar, chama add_unit_fn(unit_key, tile) se fornecido.
 
     Returns:
         dict com resultado do processamento
@@ -196,40 +189,88 @@ def process_production_queue(
         "workers_added": 0,
         "units_produced": [],
         "items_pending": len(queue_items),
-        "produced": None,
-        "insufficient_funds": False,
+        "produced": None,             # último produzido no turno (compat)
+        "insufficient_funds": False,  # True se não conseguiu pagar nada no 1º item pendente
+        "paid_total": 0.0,            # quanto pagou neste turno
+        "completed_items": 0,         # quantos itens concluiu neste turno
     }
 
     if not queue_items:
         return result
 
-    item = queue_items[0]
-    cost = float(item.cost or 0.0)
+    EPS = 1e-9
 
-    if econ.treasury < cost:
+    budget = float(econ.treasury or 0.0)
+    if budget <= EPS:
         result["insufficient_funds"] = True
         return result
 
-    # Pagar
-    econ.treasury -= cost
+    # FIFO: processa itens até acabar o budget, mas nunca pula o primeiro incompleto.
+    while budget > EPS and queue_items:
+        item = queue_items[0]
+        total_cost = float(getattr(item, "cost", 0.0) or 0.0)
+        paid_so_far = float(getattr(item, "paid", 0.0) or 0.0)
 
-    if item.item_type == QueueItemType.WORKER:
-        econ.workers += 1
-        calculate_production(econ, food_pref)
-        result["workers_added"] = 1
-        result["produced"] = "worker"
+        remaining = max(0.0, total_cost - paid_so_far)
 
-    elif item.item_type == QueueItemType.MILITARY:
-        unit_key = str(item.data) if item.data else None
-        if unit_key and add_unit_fn:
-            add_unit_fn(unit_key, econ.tile)
-        result["units_produced"].append(unit_key or "unknown")
-        result["produced"] = unit_key
+        # Caso legado/custo 0/já completo: completa e remove SEM pagar nada, e continua
+        if remaining <= EPS:
+            if item.item_type == QueueItemType.WORKER:
+                econ.workers += 1
+                calculate_production(econ, food_pref)
+                result["workers_added"] += 1
+                result["produced"] = "worker"
 
-    remove_first_fn()
-    result["items_pending"] = len(queue_items) - 1
+            elif item.item_type == QueueItemType.MILITARY:
+                unit_key = str(item.data) if item.data else None
+                if unit_key and add_unit_fn:
+                    add_unit_fn(unit_key, econ.tile)
+                result["units_produced"].append(unit_key or "unknown")
+                result["produced"] = unit_key
 
+            remove_first_fn()
+            result["completed_items"] += 1
+            continue
+
+        pay = min(budget, remaining)
+
+        # Se não conseguiu pagar nada no primeiro item, não dá pra avançar (FIFO).
+        if pay <= EPS:
+            result["insufficient_funds"] = True
+            break
+
+        # Aplicar pagamento gradual
+        econ.treasury -= pay
+        budget -= pay
+        item.paid = paid_so_far + pay
+        result["paid_total"] += pay
+
+        # Verifica conclusão (com tolerância)
+        new_remaining = max(0.0, total_cost - float(item.paid))
+        if new_remaining > EPS:
+            # Não completou o primeiro item -> para (FIFO estrito).
+            break
+
+        # COMPLETO: produzir e remover o item
+        if item.item_type == QueueItemType.WORKER:
+            econ.workers += 1
+            calculate_production(econ, food_pref)
+            result["workers_added"] += 1
+            result["produced"] = "worker"
+
+        elif item.item_type == QueueItemType.MILITARY:
+            unit_key = str(item.data) if item.data else None
+            if unit_key and add_unit_fn:
+                add_unit_fn(unit_key, econ.tile)
+            result["units_produced"].append(unit_key or "unknown")
+            result["produced"] = unit_key
+
+        remove_first_fn()
+        result["completed_items"] += 1
+
+    result["items_pending"] = len(queue_items)
     return result
+
 
 def apply_province_income(
     repo: ProvinceEconomyRepository,
