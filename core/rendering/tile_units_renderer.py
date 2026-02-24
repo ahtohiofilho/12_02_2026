@@ -231,7 +231,7 @@ class TileUnitsRenderer:
             gl.glUniformMatrix4fv(self.uniform_locations["uProjection"], 1, gl.GL_FALSE, projection_matrix.T)
 
         # 👇 TAMANHO DA UNIDADE: Altere aqui se quiser maior ou menor!
-        scale = 0.3
+        scale = 0.5
         # 👆==========================================================👆
 
         for inst in self.instances:

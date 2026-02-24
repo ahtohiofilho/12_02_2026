@@ -121,24 +121,7 @@ class Planet:
         reports: list[dict] = []
 
         # ============================================================
-        # 1) RECEITA DO TURNO (acumula no caixa antes de gastar na fila)
-        # ============================================================
-        try:
-            # calcula comércio/receitas do turno
-            resultado = self.economy.calcular_equilibrio(forcar_recalculo=True)
-
-            # aplica (commit) no treasury de cada ProvinceEconomyState
-            # (requer: core.economy.production.apply_province_income)
-            income_reports = apply_province_income(self.econ_repo, resultado)
-
-            # opcional: anexar ao retorno (para debug/UI)
-            # reports.extend({"income": r} for r in income_reports)
-        except Exception as e:
-            # não quebra o turno se economia falhar; só não deposita receita
-            print(f"⚠️ [Planet.process_production] Falha ao aplicar receita do turno: {e}")
-
-        # ============================================================
-        # 2) PRODUÇÃO DA FILA (gasta do caixa e produz worker/unidade)
+        # 1) PRODUÇÃO DA FILA (gasta o saldo acumulado do turno que passou)
         # ============================================================
         def add_unit_to_stack_fn(unit_key: str, tile: tuple[int, int]):
             province = self.get_province(tile)
@@ -182,7 +165,27 @@ class Planet:
             if (report.get("completed_items", 0) or 0) > 0 or (report.get("paid_total", 0.0) or 0.0) > 0:
                 reports.append(report)
 
+
+        # ============================================================
+        # 2) RECEITA DO TURNO (gera a grana que será gasta no PRÓXIMO turno)
+        # ============================================================
+        try:
+            # calcula comércio/receitas do turno
+            resultado = self.economy.calcular_equilibrio(forcar_recalculo=True)
+
+            # aplica (commit) no treasury de cada ProvinceEconomyState
+            # (requer: core.economy.production.apply_province_income)
+            income_reports = apply_province_income(self.econ_repo, resultado)
+
+            # opcional: anexar ao retorno (para debug/UI)
+            # reports.extend({"income": r} for r in income_reports)
+        except Exception as e:
+            # não quebra o turno se economia falhar; só não deposita receita
+            print(f"⚠️ [Planet.process_production] Falha ao aplicar receita do turno: {e}")
+
+
         return reports
+
 
     @property
     def player_civ(self) -> Optional[Civilization]:
