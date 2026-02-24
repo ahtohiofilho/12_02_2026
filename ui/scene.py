@@ -3,8 +3,6 @@ from __future__ import annotations
 from typing import Optional, Sequence, Tuple
 
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QMouseEvent
 import OpenGL.GL as gl
 
 from core.rendering.planet_renderer import PlanetRenderer
@@ -23,6 +21,7 @@ class SceneWidget(QOpenGLWidget):
     Regra de arquitetura:
       - Controller chama métodos de SceneWidget (fachada): set_planet_data(), set_route_path(), etc.
       - SceneWidget encaminha para PlanetRenderer e pede update().
+      - Captura de input (mouse/teclado) é delegada inteiramente ao InputManager.
     """
 
     def __init__(self, controller, parent=None):
@@ -30,7 +29,6 @@ class SceneWidget(QOpenGLWidget):
         self.controller = controller
         self.renderer = PlanetRenderer(self.controller)
         self.camera: Camera | None = None
-        self.last_mouse_pos = None
 
         self.cores_biomas = {
             "Ocean": (0, 23, 98),
@@ -140,6 +138,27 @@ class SceneWidget(QOpenGLWidget):
 
         self.update()
 
+    # ==========================================================
+    # COLOR PICKING - FACHADA
+    # ==========================================================
+    def get_tile_under_mouse(self, x: float, y: float) -> Optional[Tile]:
+        """
+        Pede ao PlanetRenderer para usar o ColorPicker e descobrir
+        qual tile está sob a coordenada (x, y) da tela.
+        Chamado externamente pelo InputManager.
+        """
+        if not self.renderer or not self.camera:
+            return None
+
+        if not hasattr(self.renderer, "color_picker") or self.renderer.color_picker is None:
+            return None
+
+        return self.renderer.color_picker.get_tile_at_pixel(
+            x, y,
+            self.width(), self.height(),
+            self.camera
+        )
+
     # ----------------------------
     # Ciclo de vida OpenGL (QOpenGLWidget)
     # ----------------------------
@@ -173,43 +192,12 @@ class SceneWidget(QOpenGLWidget):
         view_matrix = self.camera.get_view_matrix()
         projection_matrix = self.camera.get_projection_matrix()
 
-        # ==========================================================
         # Pegar a posição da câmera para o Billboarding (Sprites 2D em 3D)
-        # Assumindo que sua classe Camera possui uma propriedade `position` ou similar
-        # ==========================================================
         cam_pos = getattr(self.camera, 'position', [0.0, 0.0, 5.0])
-        # Se for um método getter em vez de propriedade:
         if callable(cam_pos):
             cam_pos = cam_pos()
 
-        # Atualizamos a chamada para passar o cam_pos!
         self.renderer.render(view_matrix, projection_matrix, cam_pos)
-
-    # ----------------------------
-    # Controles de câmera
-    # ----------------------------
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        if event.button() == Qt.LeftButton:
-            self.last_mouse_pos = event.position()
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        if (event.buttons() & Qt.LeftButton) and self.last_mouse_pos is not None and self.camera is not None:
-            dx = event.position().x() - self.last_mouse_pos.x()
-            dy = event.position().y() - self.last_mouse_pos.y()
-
-            sensitivity = 0.005
-            self.camera.orbit(delta_azimuth=dx * sensitivity, delta_elevation=dy * sensitivity)
-
-            self.last_mouse_pos = event.position()
-            self.update()
-
-    def wheelEvent(self, event) -> None:
-        if not self.camera:
-            return
-        delta = event.angleDelta().y()
-        zoom_sensitivity = -0.01
-        self.camera.zoom(delta * zoom_sensitivity)
-        self.update()
 
     def update_units_data(self, planet_object) -> None:
         """

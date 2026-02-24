@@ -3,7 +3,7 @@ import OpenGL.GL as gl
 import glm
 from core.rendering.civ_flag import CivFlag
 from core.rendering.route_overlay import RouteOverlayRenderer
-# from .color_picking import PickingSystem # Comentado por enquanto
+from core.rendering.color_picker import TileColorPicker
 from core.rendering.tile_units_renderer import TileUnitsRenderer
 
 class PlanetRenderer:
@@ -26,6 +26,7 @@ class PlanetRenderer:
         #self.picking_system = None
         self.controller = controller
         self.route_renderer = RouteOverlayRenderer()
+        self.color_picker = TileColorPicker(self)
 
         # Renderer unificado de unidades (militares + trabalhadores)
         self.tile_units_renderer = TileUnitsRenderer()
@@ -365,6 +366,14 @@ class PlanetRenderer:
                     if ok: print("✅ TileUnitsRenderer.init_gl concluído")
                 except Exception as e:
                     print(f"⚠️ Exceção ao inicializar TileUnitsRenderer: {e}")
+
+            # (4) Color Picker (Sistema de clique)
+            if hasattr(self, "color_picker") and self.color_picker is not None:
+                try:
+                    self.color_picker.init_gl()
+                    print("✅ ColorPicker.init_gl concluído")
+                except Exception as e:
+                    print(f"⚠️ Exceção ao inicializar ColorPicker: {e}")
 
             # === VERIFICAÇÃO DE ERROS OPENGL ===
             error = gl.glGetError()
