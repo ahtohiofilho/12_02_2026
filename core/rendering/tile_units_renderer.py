@@ -1,4 +1,4 @@
-# core/rendering/tile_units_renderer.py
+import math
 import numpy as np
 import OpenGL.GL as gl
 import glm
@@ -29,7 +29,7 @@ class TileUnitsRenderer:
         uniform mat4 uProjection;
 
         void main() {
-            // Inverte o Y da imagem
+            // Inverte o Y da imagem para não ficar de ponta-cabeça
             TexCoords = vec2(aTexCoords.x, 1.0 - aTexCoords.y);
 
             vec3 tileCenter = vec3(uModel[3][0], uModel[3][1], uModel[3][2]);
@@ -45,10 +45,7 @@ class TileUnitsRenderer:
             vec3 rightVec = normalize(cross(worldNorth, upVec));
             vec3 forwardVec = normalize(cross(upVec, rightVec));
 
-            // A MÁGICA FINAL AQUI:
-            // Em vez de multiplicar pelo tamanho do planeta, adicionamos um offset fixo milimétrico.
-            // 0.03 geralmente é perfeito para ficar acima do chão e da bandeira da civilização.
-            // Se ainda "piscar" com a bandeira, aumente para 0.05. Se achar alto, baixe para 0.01.
+            // Elevação fixa milimétrica (0.03) para evitar Z-Fighting com o chão e a bandeira
             vec3 finalCenter = tileCenter + (upVec * 0.03); 
 
             vec3 vertexWorldPos = finalCenter 
@@ -69,8 +66,7 @@ class TileUnitsRenderer:
         void main() {
             vec4 texColor = texture(uTexture, TexCoords);
 
-            // Descarta os pixels transparentes para que o PNG não desenhe 
-            // um quadrado preto invisível que tampa as unidades de trás.
+            // Descarta os pixels transparentes
             if (texColor.a < 0.1) {
                 discard;
             }
@@ -83,12 +79,8 @@ class TileUnitsRenderer:
         print("\n--- [UnitsRenderer] Atualizando dados das unidades ---")
         self.instances.clear()
 
-        if not planet:
-            print("❌ Planeta é None!")
-            return
-
-        if not hasattr(planet, 'stacks'):
-            print("❌ Planeta não possui o atributo 'stacks'!")
+        if not planet or not hasattr(planet, 'stacks'):
+            print("❌ Planeta é None ou não possui o atributo 'stacks'!")
             return
 
         tiles_com_unidades = list(planet.stacks.stack_uids_by_tile.keys())
@@ -98,39 +90,71 @@ class TileUnitsRenderer:
             if not stack_uids:
                 continue
 
-            center = centers_3d_tiles.get(tile)
-            if center is None:
-                print(f"⚠️ Tile {tile} não tem centro 3D calculado.")
+            center_3d = centers_3d_tiles.get(tile)
+            if center_3d is None:
                 continue
 
             stack_uid = list(stack_uids)[0]
             stack = planet.stacks.get_stack(stack_uid)
 
             if not stack or stack.is_empty():
-                print(f"⚠️ Stack {stack_uid} no tile {tile} está vazia ou não existe.")
                 continue
 
-            first_unit = stack.units[0]
-            unit_key = getattr(first_unit, 'unit_key', 'DESCONHECIDO')
-            print(f"✅ Encontrada unidade '{unit_key}' no tile {tile}")
+            # Processar TODAS as unidades da pilha para desenhá-las na tela
+            total_units = len(stack.units)
+            center_vec = glm.vec3(center_3d[0], center_3d[1], center_3d[2])
 
-            stats = get_unit_stats(unit_key)
-            if not stats:
-                print(f"❌ Erro: Status não encontrados para a unidade '{unit_key}'.")
-                continue
+            for i, unit in enumerate(stack.units):
+                unit_key = getattr(unit, 'unit_key', 'DESCONHECIDO')
+                print(f"✅ Encontrada unidade '{unit_key}' no tile {tile}")
 
-            sprite_key = getattr(stats, 'sprite_key', unit_key)
-            print(f"   -> Preparando para desenhar o sprite: {sprite_key}.png")
+                stats = get_unit_stats(unit_key)
+                if not stats:
+                    print(f"❌ Erro: Status não encontrados para a unidade '{unit_key}'.")
+                    continue
 
-            if sprite_key not in self.textures_cache:
-                print(f"   -> Imagem nova! Tentando carregar do HD...")
-                self.textures_cache[sprite_key] = self._load_texture(sprite_key)
+                sprite_key = getattr(stats, 'sprite_key', unit_key)
 
-            self.instances.append({
-                "center": center,
-                "sprite_key": sprite_key,
-                "is_civilian": getattr(stats, 'is_non_combat', False)
-            })
+                # =======================================================
+                # CÁLCULO DE POSIÇÃO ESFÉRICA (Espalha as unidades pelo Hex)
+                # =======================================================
+                if total_units > 1:
+                    normal = glm.normalize(center_vec)
+
+                    north = glm.vec3(0.0, 1.0, 0.0)
+                    if abs(glm.dot(normal, north)) > 0.99:
+                        north = glm.vec3(1.0, 0.0, 0.0)
+
+                    right = glm.normalize(glm.cross(north, normal))
+                    forward = glm.normalize(glm.cross(normal, right))
+
+                    # Raio de espalhamento (Distância do centro do hexágono)
+                    spread_radius = 0.3
+                    angle = (i / total_units) * math.pi * 2.0
+
+                    # Desliza a unidade pelos eixos da superfície
+                    offset_pos = center_vec + (right * math.cos(angle) * spread_radius) + (
+                                forward * math.sin(angle) * spread_radius)
+
+                    # Puxa a unidade de volta para grudar na curvatura da esfera
+                    radius = glm.length(center_vec)
+                    offset_pos = glm.normalize(offset_pos) * radius
+
+                    final_center = (offset_pos.x, offset_pos.y, offset_pos.z)
+                else:
+                    final_center = (center_vec.x, center_vec.y, center_vec.z)
+                # =======================================================
+
+                # Carrega textura se for nova
+                if sprite_key not in self.textures_cache:
+                    print(f"   -> Imagem nova! Tentando carregar do HD: {sprite_key}.png")
+                    self.textures_cache[sprite_key] = self._load_texture(sprite_key)
+
+                self.instances.append({
+                    "center": final_center,
+                    "sprite_key": sprite_key,
+                    "is_civilian": getattr(stats, 'is_non_combat', False)
+                })
 
         print(f"--- [UnitsRenderer] Total de instâncias prontas para desenhar: {len(self.instances)} ---")
 
@@ -138,7 +162,6 @@ class TileUnitsRenderer:
         if getattr(self, "initialized", False):
             return True
 
-        # Compila shaders
         vs = self._compile_shader(self.vertex_shader_source, gl.GL_VERTEX_SHADER)
         fs = self._compile_shader(self.fragment_shader_source, gl.GL_FRAGMENT_SHADER)
 
@@ -150,32 +173,24 @@ class TileUnitsRenderer:
         gl.glDeleteShader(vs)
         gl.glDeleteShader(fs)
 
-        # Mapeando TODOS os uniforms para o dicionário que o 'render' precisa
         gl.glUseProgram(self.shader_program)
         self.uniform_locations = {
             "uModel": gl.glGetUniformLocation(self.shader_program, "uModel"),
             "uView": gl.glGetUniformLocation(self.shader_program, "uView"),
             "uProjection": gl.glGetUniformLocation(self.shader_program, "uProjection"),
-            "uTexture": gl.glGetUniformLocation(self.shader_program, "uTexture"),
-            # Variáveis extras (retornarão -1 se não existirem no seu shader, o que é seguro)
-            "uCameraPos": gl.glGetUniformLocation(self.shader_program, "uCameraPos"),
-            "uCenter": gl.glGetUniformLocation(self.shader_program, "uCenter"),
-            "uSize": gl.glGetUniformLocation(self.shader_program, "uSize")
+            "uTexture": gl.glGetUniformLocation(self.shader_program, "uTexture")
         }
         gl.glUseProgram(0)
 
-        # Geometria do Quad (1x1) - AGORA COM 6 VÉRTICES (2 Triângulos)
+        # Geometria do Quad (1x1) - 6 Vértices
         half_s = 0.5
         vertices = np.array([
-            # Primeiro triângulo
-            # x, y, z,          u, v
-            -half_s, -half_s, 0.0, 0.0, 0.0,  # inferior esquerdo
-            half_s, -half_s, 0.0, 1.0, 0.0,  # inferior direito
-            half_s, half_s, 0.0, 1.0, 1.0,  # superior direito
-            # Segundo triângulo
-            half_s, half_s, 0.0, 1.0, 1.0,  # superior direito
-            -half_s, half_s, 0.0, 0.0, 1.0,  # superior esquerdo
-            -half_s, -half_s, 0.0, 0.0, 0.0  # inferior esquerdo
+            -half_s, -half_s, 0.0, 0.0, 0.0,
+            half_s, -half_s, 0.0, 1.0, 0.0,
+            half_s, half_s, 0.0, 1.0, 1.0,
+            half_s, half_s, 0.0, 1.0, 1.0,
+            -half_s, half_s, 0.0, 0.0, 1.0,
+            -half_s, -half_s, 0.0, 0.0, 0.0
         ], dtype=np.float32)
 
         self.vao = gl.glGenVertexArrays(1)
@@ -198,39 +213,26 @@ class TileUnitsRenderer:
         print("✅ TileUnitsRenderer.init_gl concluído")
         return True
 
-    def render(self, view_matrix, projection_matrix, camera_position):
+    def render(self, view_matrix, projection_matrix, camera_position=None):
         if not getattr(self, "initialized", False) or not self.instances:
             return
 
         gl.glUseProgram(self.shader_program)
         gl.glBindVertexArray(self.vao)
 
-        # TRUQUE 1: Ativar a transparência (Alpha) do PNG
+        # Ativar a transparência (Alpha) do PNG
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
-        # TRUQUE 2: Desabilitar o Teste de Profundidade temporariamente.
-        # Isso faz com que a unidade seja desenhada "por cima" de tudo,
-        # mesmo que ela estivesse escondida dentro do planeta!
-        gl.glDisable(gl.GL_DEPTH_TEST)
-
-        # Envia as matrizes de Câmera e Projeção (se existirem no shader)
         if self.uniform_locations["uView"] != -1:
             gl.glUniformMatrix4fv(self.uniform_locations["uView"], 1, gl.GL_FALSE, view_matrix.T)
 
         if self.uniform_locations["uProjection"] != -1:
             gl.glUniformMatrix4fv(self.uniform_locations["uProjection"], 1, gl.GL_FALSE, projection_matrix.T)
 
-        # Enviar a posição da câmera para o Billboarding (se existir no shader)
-        if self.uniform_locations["uCameraPos"] != -1:
-            gl.glUniform3f(
-                self.uniform_locations["uCameraPos"],
-                float(camera_position[0]),
-                float(camera_position[1]),
-                float(camera_position[2])
-            )
-
-        import numpy as np  # Garantindo que o numpy está disponível para a matriz uModel
+        # 👇 TAMANHO DA UNIDADE: Altere aqui se quiser maior ou menor!
+        scale = 0.3
+        # 👆==========================================================👆
 
         for inst in self.instances:
             sprite_key = inst["sprite_key"]
@@ -243,20 +245,10 @@ class TileUnitsRenderer:
             if self.uniform_locations["uTexture"] != -1:
                 gl.glUniform1i(self.uniform_locations["uTexture"], 0)
 
-            # --- TRUQUE 3: Elevar e Posicionar a unidade ---
             c = inst["center"]
+            # Extraindo a coordenada crua (o Shader faz a elevação!)
+            cx, cy, cz = float(c[0]), float(c[1]), float(c[2])
 
-            # Multiplicamos a posição por 1.05 para ela flutuar 5% acima do chão (evita z-fighting)
-            cx, cy, cz = float(c[0]) * 1.05, float(c[1]) * 1.05, float(c[2]) * 1.05
-            scale = 0.2  # Tamanho da unidade na tela
-
-            # 1) Estratégia A: Se o seu shader usar variáveis uCenter e uSize separadas
-            if self.uniform_locations["uCenter"] != -1:
-                gl.glUniform3f(self.uniform_locations["uCenter"], cx, cy, cz)
-            if self.uniform_locations["uSize"] != -1:
-                gl.glUniform1f(self.uniform_locations["uSize"], scale)
-
-            # 2) Estratégia B: Se o seu shader usar uma uModel clássica (Matriz de Translação + Escala)
             if self.uniform_locations["uModel"] != -1:
                 model_matrix = np.array([
                     [scale, 0.0, 0.0, 0.0],
@@ -266,18 +258,16 @@ class TileUnitsRenderer:
                 ], dtype=np.float32)
                 gl.glUniformMatrix4fv(self.uniform_locations["uModel"], 1, gl.GL_FALSE, model_matrix)
 
-            # Desenha o quadrado do Sprite (6 vértices / 2 triângulos)
+            # Desenha o quadrado do Sprite
             gl.glDrawArrays(gl.GL_TRIANGLES, 0, 6)
 
-        # Limpeza e restauração do estado original do OpenGL
         gl.glBindVertexArray(0)
         gl.glUseProgram(0)
 
-        # Reativar o teste de profundidade para não estragar o resto do cenário!
-        gl.glEnable(gl.GL_DEPTH_TEST)
+        # Desativa o BLEND para não interferir na renderização de outras coisas
+        gl.glDisable(gl.GL_BLEND)
 
     def _load_texture(self, sprite_key):
-        """Carrega a imagem de assets/units/<sprite_key>.png"""
         path = Path("assets") / "units" / f"{sprite_key}.png"
         if not path.exists():
             print(f"⚠️ [UnitsRenderer] Imagem não encontrada: {path}")
@@ -301,7 +291,6 @@ class TileUnitsRenderer:
             return 0
 
     def _compile_shader(self, source, shader_type):
-        """Compila um shader OpenGL e verifica se houve erros."""
         shader = gl.glCreateShader(shader_type)
         gl.glShaderSource(shader, source)
         gl.glCompileShader(shader)

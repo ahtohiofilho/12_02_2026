@@ -4,12 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Corrigi um problema com a compra de workers.">
-      <change afterPath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" afterDir="false" />
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementei a renderização das unidades. Próximo passo: resolver a renderização do stack, que atualmente renderiza só a primeira unidade da lista.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -239,7 +236,15 @@
       <option name="project" value="LOCAL" />
       <updated>1771824925843</updated>
     </task>
-    <option name="localTasksCounter" value="21" />
+    <task id="LOCAL-00021" summary="Implementei a renderização das unidades. Próximo passo: resolver a renderização do stack, que atualmente renderiza só a primeira unidade da lista.">
+      <option name="closed" value="true" />
+      <created>1771830059088</created>
+      <option name="number" value="00021" />
+      <option name="presentableId" value="LOCAL-00021" />
+      <option name="project" value="LOCAL" />
+      <updated>1771830059088</updated>
+    </task>
+    <option name="localTasksCounter" value="22" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -263,6 +268,7 @@
     <MESSAGE value="Implementei o tesouro da província." />
     <MESSAGE value="Reformulei o sistema de unidades, atualizei o sistema de combate e atualizei a ui." />
     <MESSAGE value="Corrigi um problema com a compra de workers." />
-    <option name="LAST_COMMIT_MESSAGE" value="Corrigi um problema com a compra de workers." />
+    <MESSAGE value="Implementei a renderização das unidades. Próximo passo: resolver a renderização do stack, que atualmente renderiza só a primeira unidade da lista." />
+    <option name="LAST_COMMIT_MESSAGE" value="Implementei a renderização das unidades. Próximo passo: resolver a renderização do stack, que atualmente renderiza só a primeira unidade da lista." />
   </component>
 </project>
