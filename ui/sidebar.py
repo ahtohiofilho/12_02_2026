@@ -79,34 +79,22 @@ class SideBar(QWidget):
     # ================================================================
 
     def _save_screen_snapshot(self) -> None:
-        """Salva a página atual e a aba ativa (se for province_detail)."""
         current = self.stacked_widget.currentIndex()
-
-        # Só salva se não estiver já no selection panel (evita sobrescrever)
         if current == 3:
             return
-
         self._pre_selection_page = current
-
-        # Se estava no painel de província, salva a aba ativa
         if current == 2:
             self._pre_selection_tab = self.province_detail.tab_widget.currentIndex()
         else:
             self._pre_selection_tab = None
 
     def _restore_screen_snapshot(self) -> None:
-        """Restaura a página e aba que estavam ativas antes da seleção."""
         if self._pre_selection_page is not None:
             self.stacked_widget.setCurrentIndex(self._pre_selection_page)
-
-            # Restaurar aba do province detail se aplicável
             if self._pre_selection_page == 2 and self._pre_selection_tab is not None:
                 self.province_detail.tab_widget.setCurrentIndex(self._pre_selection_tab)
         else:
-            # Fallback: volta para o civ manager
             self.stacked_widget.setCurrentIndex(1)
-
-        # Limpa snapshot
         self._pre_selection_page = None
         self._pre_selection_tab = None
 
@@ -116,7 +104,8 @@ class SideBar(QWidget):
 
     def on_planet_loaded(self, success: bool):
         if success and self.controller.game:
-            civ = self.controller.game.player_civ
+            # ✅ MUDANÇA: usa controlled_civ em vez de player_civ
+            civ = self.controller.controlled_civ
             planet = self.controller.game
             self.civ_manager_view.set_data(civ, planet)
             self.stacked_widget.setCurrentIndex(1)
@@ -153,23 +142,19 @@ class SideBar(QWidget):
     # ================================================================
 
     def show_selection_panel(self):
-        """Memoriza a tela atual e abre o painel de seleção."""
         self._save_screen_snapshot()
         self.selection_panel.update_from_selection(self.controller)
         self.stacked_widget.setCurrentIndex(3)
 
     def update_selection_panel(self):
-        """Atualiza o painel de seleção se estiver visível."""
         if self.stacked_widget.currentIndex() == 3:
             self.selection_panel.update_from_selection(self.controller)
 
     def hide_selection_panel(self):
-        """Restaura a tela que estava aberta antes da seleção."""
         if self.stacked_widget.currentIndex() == 3:
             self._restore_screen_snapshot()
 
     def _on_back_from_selection(self):
-        """◀ Back no painel de seleção → restaura tela anterior."""
         self.controller.selection.clear()
         self.controller._clear_route_overlay()
         if self.controller.scene:
@@ -177,20 +162,17 @@ class SideBar(QWidget):
         self._restore_screen_snapshot()
 
     def _on_cancel_command(self):
-        """Cancela o comando pendente da stack selecionada."""
         ctrl = self.controller
         if ctrl.game and ctrl.selection.has_selection:
             ctrl.game.command_manager.cancel_command(ctrl.selection.selected_stack_uid)
             ctrl._clear_route_overlay()
             ctrl.selection.preview_path = None
             print("🚫 Comando cancelado via painel.")
-
         self.update_selection_panel()
         if ctrl.scene:
             ctrl.scene.update()
 
     def _on_go_to_tile(self, tile_coords):
-        """Centraliza a câmera no tile da stack selecionada."""
         planet = self.controller.game
         camera = self.controller.camera
         if not planet or not camera:

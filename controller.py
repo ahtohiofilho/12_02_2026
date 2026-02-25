@@ -23,6 +23,62 @@ class Controller:
         self.input_manager: InputManager | None = None
         self.selection = SelectionState()
 
+        # ── Debug Mode ──
+        self.debug_mode: bool = True  # Mude para False para desabilitar
+        self._controlled_civ_index: int = 0  # índice na lista de civs
+
+    # ----------------------------
+    # Debug: Civilização controlada
+    # ----------------------------
+    @property
+    def controlled_civ(self):
+        """Retorna a civilização atualmente controlada."""
+        if not self.game:
+            return None
+        if self.debug_mode:
+            civs = self.game.civilizations
+            if civs and 0 <= self._controlled_civ_index < len(civs):
+                return civs[self._controlled_civ_index]
+        return self.game.player_civ
+
+    @property
+    def controlled_civ_id(self) -> int:
+        """ID da civ controlada."""
+        civ = self.controlled_civ
+        return civ.id if civ else 0
+
+    def cycle_controlled_civ(self, direction: int = 1):
+        """
+        Cicla a civilização controlada.
+        direction: +1 = próxima, -1 = anterior
+        """
+        if not self.game or not self.debug_mode:
+            return
+
+        civs = self.game.civilizations
+        if not civs:
+            return
+
+        self._controlled_civ_index = (self._controlled_civ_index + direction) % len(civs)
+        civ = civs[self._controlled_civ_index]
+
+        # Limpar seleção ao trocar de civ
+        self.selection.clear()
+        self._clear_route_overlay()
+
+        print(f"🔄 [DEBUG] Controlando: {civ.name} (id={civ.id}, index={self._controlled_civ_index})")
+
+        # ✅ Atualizar sidebar com a nova civ
+        if self.window and hasattr(self.window.sidebar, "civ_manager_view"):
+            self.window.sidebar.civ_manager_view.set_data(civ, self.game)
+
+        # Fechar painel de seleção
+        if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
+            self.window.sidebar.hide_selection_panel()
+
+        if self.scene:
+            self.scene.update()
+
     def run(self):
         self.window = MainWindow(controller=self)
         self.input_manager = InputManager(self)
@@ -76,6 +132,14 @@ class Controller:
         if self.window:
             self.window.sidebar.on_planet_loaded(True)
 
+        # Resetar debug index
+        self._controlled_civ_index = 0
+        if self.debug_mode:
+            civ = self.controlled_civ
+            if civ:
+                print(f"🔧 [DEBUG MODE ATIVO] Controlando: {civ.name} (id={civ.id})")
+                print(f"   Tab = próxima civ | Shift+Tab = civ anterior")
+
         # Estado visual inicial
         self._clear_route_overlay()
         self._on_go_to_capital()
@@ -84,10 +148,6 @@ class Controller:
     # Rotas (overlay) — API do Controller
     # ----------------------------
     def _set_route_overlay(self, path_tiles):
-        """
-        path_tiles: list[(x,y)] | None
-        Controller repassa para a Scene (que repassa pro PlanetRenderer).
-        """
         if not self.scene:
             return
 
@@ -103,7 +163,6 @@ class Controller:
         self._set_route_overlay(None)
 
     def _restore_or_clear_overlay(self):
-        """Restaura overlay do comando pendente ou limpa."""
         if self.game and self.selection.has_selection:
             cmd = self.game.command_manager.get_command(
                 self.selection.selected_stack_uid
@@ -118,7 +177,6 @@ class Controller:
     # Ações de UI
     # ----------------------------
     def _on_go_to_capital(self):
-        """Move a câmera para focar na capital da civilização do jogador."""
         print("Controller: Recebido pedido para ir para a capital.")
 
         if not self.game:
@@ -128,14 +186,15 @@ class Controller:
             print("⚠️ Controller: Câmera não disponível.")
             return
 
-        player_civ = self.game.player_civ
-        if not player_civ:
-            print("⚠️ Controller: Civilização do jogador não encontrada.")
+        # Usa civ controlada em vez de player_civ
+        civ = self.controlled_civ
+        if not civ:
+            print("⚠️ Controller: Civilização não encontrada.")
             return
 
-        capital_coords = player_civ.capital_coords
+        capital_coords = civ.capital_coords
         if not capital_coords:
-            print(f"⚠️ Controller: Civilização '{player_civ.name}' não possui capital.")
+            print(f"⚠️ Controller: Civilização '{civ.name}' não possui capital.")
             return
 
         tile_centers_3d = self.game.centers_map
@@ -158,11 +217,9 @@ class Controller:
             print("⚠️ Nenhum planeta ativo.")
             return
 
-        # 1) Flush comandos → TurnEngine (agora submete apenas 1 step)
         cmd_count = self.game.command_manager.flush_to_engine()
         print(f"📋 {cmd_count} ordem(ns) submetida(s) ao TurnEngine.")
 
-        # 2) Produção e economia
         print("\n🏭 Processando produção e economia...")
         production_reports = self.game.process_production()
         if production_reports:
@@ -171,7 +228,6 @@ class Controller:
 
         self.game.economy.invalidar_cache()
 
-        # 3) Resolver turno (movimentos + combates de 1 step)
         print("\n⚔️ Resolvendo movimentos e combates...")
         turn_report = self.game.turn_engine.resolve_turn()
 
@@ -179,10 +235,8 @@ class Controller:
         print(f"   Ordens processadas: {turn_report.total_orders}")
         print(f"   Batalhas: {turn_report.total_battles}")
 
-        # 4) Avançar comandos persistentes (atualiza remaining_path)
         self.game.command_manager.advance_persistent_commands()
 
-        # 5) Atualizar overlay da seleção atual (se houver comando em andamento)
         if self.selection.has_selection:
             cmd = self.game.command_manager.get_command(
                 self.selection.selected_stack_uid
@@ -191,24 +245,19 @@ class Controller:
                 self._set_route_overlay(cmd.remaining_path)
             else:
                 self._clear_route_overlay()
-                # Comando terminou — limpar seleção
                 self.selection.clear()
         else:
             self._clear_route_overlay()
 
-        # 6) Limpar estado de hover
         if self.input_manager:
             self.input_manager.clear_hover_state()
 
-        # 7) Atualizar UI
         self._update_ui_post_turn()
 
-        # 8) Fechar painel de seleção se não há mais comando ativo
         if not self.selection.has_selection:
             if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
                 self.window.sidebar.hide_selection_panel()
 
-        # 9) Re-render 3D
         if self.scene:
             if hasattr(self.scene, "update_units_data"):
                 self.scene.update_units_data(self.game)
@@ -216,7 +265,6 @@ class Controller:
                 self.scene.update()
 
     def _update_ui_post_turn(self):
-        """Atualização de UI pós-turno."""
         if self.window and hasattr(self.window.sidebar, "civ_manager_view"):
             self.window.sidebar.civ_manager_view.update_display()
 
@@ -233,50 +281,43 @@ class Controller:
                 print(f"⚠️ Falha ao atualizar painel: {e}")
 
     def set_hover_trade_route(self, path_tiles: Sequence[Tuple[int, int]]) -> None:
-        """Chamado pela UI ao detectar hover em rota comercial."""
         if self.scene:
             self.scene.set_route_path(path_tiles)
 
     def clear_hover_trade_route(self) -> None:
-        """Chamado pela UI ao sair do hover."""
         self.set_hover_trade_route(None)
 
     # ----------------------------
     # Seleção de Stack
     # ----------------------------
     def on_tile_left_clicked(self, tile_coords):
-        """
-        Clique esquerdo em um tile:
-          - Se tem stack própria → seleciona e abre painel
-          - Se não → deseleciona e fecha painel
-        """
         if not self.game:
             return
 
-        player_civ = self.game.player_civ
-        if not player_civ:
+        # Usa civ controlada em vez de player_civ
+        civ = self.controlled_civ
+        if not civ:
             return
 
         stacks = self.game.stacks.stacks_in_tile(tile_coords)
-        player_stack = None
+        own_stack = None
         for s in stacks:
-            if s.owner_id == player_civ.id and not s.is_empty():
-                player_stack = s
+            if s.owner_id == civ.id and not s.is_empty():
+                own_stack = s
                 break
 
-        if player_stack:
-            self.selection.select_stack(player_stack.uid, tile_coords)
-            units_str = ", ".join(u.unit_key for u in player_stack.units)
-            print(f"✅ Stack selecionada em {tile_coords}: [{units_str}]")
+        if own_stack:
+            self.selection.select_stack(own_stack.uid, tile_coords)
+            units_str = ", ".join(u.unit_key for u in own_stack.units)
+            civ_label = f" [{civ.name}]" if self.debug_mode else ""
+            print(f"✅ Stack selecionada em {tile_coords}{civ_label}: [{units_str}]")
 
-            # Mostrar path do comando pendente (se houver)
-            cmd = self.game.command_manager.get_command(player_stack.uid)
+            cmd = self.game.command_manager.get_command(own_stack.uid)
             if cmd and cmd.path:
                 self._set_route_overlay(cmd.path)
             else:
                 self._clear_route_overlay()
 
-            # Abrir painel de seleção na sidebar
             if self.window and hasattr(self.window.sidebar, "show_selection_panel"):
                 self.window.sidebar.show_selection_panel()
 
@@ -285,11 +326,9 @@ class Controller:
             self._clear_route_overlay()
             print(f"ℹ️ Nenhuma stack própria em {tile_coords}. Seleção limpa.")
 
-            # Limpar estado de hover
             if self.input_manager:
                 self.input_manager.clear_hover_state()
 
-            # Fechar painel de seleção
             if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
                 self.window.sidebar.hide_selection_panel()
 
@@ -300,11 +339,6 @@ class Controller:
     # Comando de Movimento
     # ----------------------------
     def on_tile_right_clicked(self, tile_coords):
-        """
-        Clique direito em um tile:
-          - Se tem stack selecionada → emite comando de movimento
-          - Se não → abre painel de província
-        """
         if not self.game:
             return
 
@@ -312,14 +346,15 @@ class Controller:
             self._on_tile_info(tile_coords)
             return
 
-        player_civ = self.game.player_civ
-        if not player_civ:
+        # Usa civ controlada
+        civ = self.controlled_civ
+        if not civ:
             return
 
         ok, msg, cmd = self.game.command_manager.issue_move_command(
             stack_uid=self.selection.selected_stack_uid,
             destination=tile_coords,
-            owner_civ_id=player_civ.id,
+            owner_civ_id=civ.id,
         )
 
         if ok and cmd and cmd.path:
@@ -327,7 +362,6 @@ class Controller:
             self._set_route_overlay(cmd.path)
             self.selection.preview_path = cmd.path
 
-            # Resetar hover para que o overlay do comando prevaleça
             if self.input_manager:
                 self.input_manager._last_hover_tile = None
 
@@ -335,7 +369,6 @@ class Controller:
             print(f"❌ Comando rejeitado: {msg}")
             self._clear_route_overlay()
 
-        # Atualizar painel de seleção (mostra comando pendente)
         if self.window and hasattr(self.window.sidebar, "update_selection_panel"):
             self.window.sidebar.update_selection_panel()
 
@@ -346,10 +379,6 @@ class Controller:
     # Hover — Preview de rota
     # ----------------------------
     def on_tile_hovered(self, tile_coords):
-        """
-        Mouse sobre um tile com stack selecionada.
-        Calcula preview do caminho em tempo real com custos variáveis.
-        """
         if not self.game or not self.selection.has_selection:
             return
 
@@ -357,7 +386,6 @@ class Controller:
         if not stack or stack.is_empty():
             return
 
-        # Hover no tile da própria stack → restaura overlay do comando real
         if tile_coords == stack.tile:
             self._restore_or_clear_overlay()
             return
@@ -372,7 +400,6 @@ class Controller:
         budget = movement_budget_for_stack(stack)
         unit_keys = [u.unit_key for u in stack.units]
 
-        # 1) Tenta com budget (alcançável neste turno)
         path = find_path(
             self.game.graph,
             stack.tile,
@@ -385,7 +412,6 @@ class Controller:
         if path:
             self._set_route_overlay(path)
         else:
-            # 2) Sem limite de budget (rota possível mas fora de alcance)
             path_unlimited = find_path(
                 self.game.graph,
                 stack.tile,
@@ -406,7 +432,6 @@ class Controller:
     # Info de Província
     # ----------------------------
     def _on_tile_info(self, tile_coords):
-        """Abre painel de província ao clicar direito sem seleção."""
         if not self.game:
             return
 
@@ -415,7 +440,6 @@ class Controller:
             self.window.sidebar._on_province_selected(province)
 
     def on_deselect(self):
-        """ESC pressionado — limpa seleção, overlay e hover."""
         self.selection.clear()
         self._clear_route_overlay()
 

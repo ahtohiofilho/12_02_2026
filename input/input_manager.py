@@ -78,6 +78,13 @@ class InputManager(QObject):
                     self.controller.on_deselect()
                 return True
 
+            # ── Tab / Shift+Tab → ciclar civilização (debug mode) ──
+            if key in (Qt.Key_Tab, Qt.Key_Backtab):
+                if event.type() == QEvent.KeyPress and not key_event.isAutoRepeat():
+                    backward = key == Qt.Key_Backtab or bool(key_event.modifiers() & Qt.ShiftModifier)
+                    self.controller.cycle_controlled_civ(-1 if backward else 1)
+                return True  # sempre consome para não mudar foco de widget
+
             # Turn hotkey (evento discreto)
             if key in self.TURN_KEYS:
                 if event.type() == QEvent.KeyPress and not key_event.isAutoRepeat():
