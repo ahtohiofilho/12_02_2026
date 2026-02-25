@@ -18,9 +18,6 @@ Tile = tuple[int, int]
 # ──────────────────────────────────────────────
 # Budget por turno (em "turnos-custo")
 # ──────────────────────────────────────────────
-# Os custos na tabela representam TURNOS para cruzar.
-# Cada turno de jogo concede exatamente 1 unidade de tempo.
-# Uma fragata em Ocean (custo 2) precisa de 2 turnos para cruzar 1 tile.
 TURN_BUDGET: int = 1
 
 
@@ -32,10 +29,6 @@ def allowed_biomes_for_stack(
     stack,
     stacks_repo=None,
 ) -> set[str]:
-    """
-    Biomas permitidos = interseção dos biomas de TODAS as unidades da stack.
-    (A unidade mais restrita limita.)
-    """
     if not stack or not stack.units:
         return set()
 
@@ -46,7 +39,7 @@ def allowed_biomes_for_stack(
         if stats is None:
             continue
 
-        cat_name = stats.category.name.lower()  # "land", "naval", "air"
+        cat_name = stats.category.name.lower()
         biomes = set(ALLOWED_BIOMES_PER_CATEGORY.get(cat_name, []))
 
         if result is None:
@@ -58,10 +51,6 @@ def allowed_biomes_for_stack(
 
 
 def movement_budget_for_stack(stack) -> int:
-    """
-    Budget por turno = TURN_BUDGET (sempre 1).
-    O custo da tabela já está em turnos, então 1 turno = 1 unidade de tempo.
-    """
     return TURN_BUDGET
 
 
@@ -73,23 +62,11 @@ def tiles_reachable_this_turn(
     allowed_biomes: set[str] | None = None,
     budget: int = TURN_BUDGET,
 ) -> int:
-    """
-    Dado um caminho completo, retorna quantos tiles da lista a stack
-    consegue percorrer neste turno (acumulando custo até estourar o budget).
-
-    Retorna o ÍNDICE do último tile alcançável no path (0 = não sai do lugar).
-
-    Lógica de acumulação fracionária:
-      - Cada tile tem custo C (em turnos).
-      - A cada turno, a stack ganha +1 de budget.
-      - Se o custo acumulado do próximo tile > budget disponível, para.
-      - Budget residual é preservado entre turnos (via remaining_budget na stack).
-    """
     if not path or len(path) < 2:
         return 0
 
     spent = 0
-    last_reachable = 0  # índice 0 = origin, não se move
+    last_reachable = 0
 
     for i in range(1, len(path)):
         tile = path[i]
@@ -112,7 +89,6 @@ def tiles_reachable_this_turn(
 
 
 def max_movement_for_stack(stack) -> int:
-    """Mantido para compatibilidade — retorna stats.movement mínimo."""
     if not stack or not stack.units:
         return 0
 
@@ -126,21 +102,72 @@ def max_movement_for_stack(stack) -> int:
 
 
 # ──────────────────────────────────────────────
+# Tile passability helper
+# ──────────────────────────────────────────────
+def _build_passable_set(
+    planet,
+    owner_id: int,
+) -> set[Tile] | None:
+    """
+    Retorna o conjunto de tiles por onde a civ `owner_id` pode passar:
+      - Tiles sem dono (sem província)
+      - Tiles da própria civ
+      - Tiles de civs ALIADAS
+
+    Retorna None se planet não foi fornecido (desabilita filtro).
+    """
+    if planet is None:
+        return None
+
+    from core.diplomacy import Relation
+
+    passable: set[Tile] = set()
+
+    all_tiles = set(planet.graph.nodes)
+    owned_tiles = set(planet.provinces_by_tile.keys())
+
+    # Tiles sem dono → sempre passáveis
+    passable |= (all_tiles - owned_tiles)
+
+    # Tiles com dono → só se for aliado ou próprio
+    for tile, province in planet.provinces_by_tile.items():
+        if province.owner is None:
+            passable.add(tile)
+            continue
+
+        tile_owner_id = province.owner.id
+
+        if tile_owner_id == owner_id:
+            passable.add(tile)
+            continue
+
+        rel = planet.diplomacy.relation(owner_id, tile_owner_id)
+        if rel == Relation.ALLY:
+            passable.add(tile)
+
+    return passable
+
+
+# ──────────────────────────────────────────────
 # Weight function factory (para NetworkX)
 # ──────────────────────────────────────────────
 def _make_weight_fn(
     graph: nx.DiGraph,
     unit_keys: list[str],
     allowed_biomes: set[str] | None,
+    passable_tiles: set[Tile] | None = None,
 ):
     """
     Retorna uma função de peso compatível com nx.shortest_path(weight=fn).
 
-    A função recebe (u, v, edge_data) e retorna o custo de ENTRAR em v
-    considerando todas as unidades da stack (mais lenta dita o ritmo).
-    Se v for inacessível → retorna None (NetworkX ignora a aresta).
+    Agora também verifica se o tile de destino é passável (território
+    próprio, aliado ou sem dono).
     """
     def weight_fn(u, v, edge_data):
+        # ── Filtro de território ──
+        if passable_tiles is not None and v not in passable_tiles:
+            return None
+
         biome = graph.nodes[v].get("bioma", "Meadow")
 
         if allowed_biomes is not None and biome not in allowed_biomes:
@@ -167,14 +194,11 @@ def find_path(
     allowed_biomes: set[str] | None = None,
     unit_keys: list[str] | None = None,
     weight: str = "cust_mob",
+    planet=None,
+    owner_id: int | None = None,
 ) -> Optional[list[Tile]]:
     """
     Dijkstra entre origin e destination com custos variáveis por unidade×bioma.
-
-    NOTA: movement_points aqui é usado apenas como FILTRO de custo total
-    (para validação). O caminho completo é sempre retornado se existir.
-    Para saber quantos tiles a stack avança por turno, use
-    tiles_reachable_this_turn().
 
     Args:
         graph:            NetworkX DiGraph do planeta
@@ -184,6 +208,8 @@ def find_path(
         allowed_biomes:   biomas permitidos para filtragem
         unit_keys:        lista de unit_keys da stack (ativa custos variáveis)
         weight:           fallback — nome do atributo de aresta (usado se unit_keys=None)
+        planet:           instância do Planet (para filtro de território)
+        owner_id:         id da civ dona da stack (para filtro de território)
 
     Returns:
         Lista de tiles [origin, ..., destination] ou None se impossível.
@@ -194,9 +220,18 @@ def find_path(
     if origin not in graph or destination not in graph:
         return None
 
+    # ── Constrói conjunto de tiles passáveis ──
+    passable_tiles = None
+    if planet is not None and owner_id is not None:
+        passable_tiles = _build_passable_set(planet, owner_id)
+
+        # Destino bloqueado → sem rota (evita cálculo desnecessário)
+        if passable_tiles is not None and destination not in passable_tiles:
+            return None
+
     # ── Modo com custos variáveis (unit_keys fornecido) ──
     if unit_keys:
-        w_fn = _make_weight_fn(graph, unit_keys, allowed_biomes)
+        w_fn = _make_weight_fn(graph, unit_keys, allowed_biomes, passable_tiles)
 
         try:
             cost, path = nx.single_source_dijkstra(
@@ -222,6 +257,12 @@ def find_path(
             if biome not in allowed_biomes:
                 return None
 
+    # ── Filtro de território no modo legado ──
+    if passable_tiles is not None:
+        for tile in path[1:]:
+            if tile not in passable_tiles:
+                return None
+
     if movement_points is not None:
         total_cost = 0.0
         for i in range(len(path) - 1):
@@ -243,19 +284,22 @@ def get_reachable_tiles(
     allowed_biomes: set[str] | None = None,
     unit_keys: list[str] | None = None,
     weight: str = "cust_mob",
+    planet=None,
+    owner_id: int | None = None,
 ) -> dict[Tile, float]:
     """
     Retorna todos os tiles alcançáveis a partir de `origin`
     com até `movement_points` de custo acumulado.
-
-    Returns:
-        dict[Tile, custo_acumulado]
     """
     if movement_points <= 0:
         return {}
 
+    passable_tiles = None
+    if planet is not None and owner_id is not None:
+        passable_tiles = _build_passable_set(planet, owner_id)
+
     if unit_keys:
-        w_fn = _make_weight_fn(graph, unit_keys, allowed_biomes)
+        w_fn = _make_weight_fn(graph, unit_keys, allowed_biomes, passable_tiles)
 
         try:
             lengths = nx.single_source_dijkstra_path_length(
@@ -285,6 +329,9 @@ def get_reachable_tiles(
             biome = graph.nodes.get(tile, {}).get("bioma", "")
             if biome not in allowed_biomes:
                 continue
+        # ── Filtro de território ──
+        if passable_tiles is not None and tile not in passable_tiles:
+            continue
         reachable[tile] = float(cost)
 
     return reachable

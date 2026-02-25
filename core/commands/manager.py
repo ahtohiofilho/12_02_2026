@@ -14,18 +14,6 @@ Tile = tuple[int, int]
 class CommandManager:
     """
     Gerencia comandos pendentes (inclui ordens multi-turno).
-
-    Ciclo:
-        1. Jogador dá comandos (issue_move_command)
-        2. Comandos ficam PENDING com path completo
-        3. No fim do turno, flush_to_engine() calcula o avanço deste turno
-           e submete apenas o próximo tile alcançável ao TurnEngine
-        4. TurnEngine.resolve_turn() resolve (1 tile por vez)
-        5. Pós-turno: advance_persistent_commands() atualiza remaining_path
-           - Se chegou ao destino → remove comando
-           - Se não → mantém como PENDING para o próximo turno
-
-    Regra: 1 comando por stack (o último sobrescreve).
     """
 
     def __init__(
@@ -33,13 +21,14 @@ class CommandManager:
         graph,
         stacks: StackRepository,
         turn_engine: TurnEngine,
+        planet=None,
     ):
         self.graph = graph
+        self.planet = planet
         self.validator = CommandValidator(graph, stacks)
         self.stacks = stacks
         self.turn_engine = turn_engine
 
-        # stack_uid -> UnitCommand (1 por stack)
         self._pending: dict[str, UnitCommand] = {}
 
     def issue_move_command(
@@ -47,12 +36,21 @@ class CommandManager:
         stack_uid: str,
         destination: Tile,
         owner_civ_id: int,
+        planet=None,
     ) -> tuple[bool, str, Optional[UnitCommand]]:
         """
         Tenta emitir um comando de movimento.
-        O path completo é armazenado; o avanço por turno é calculado no flush.
+        Agora aceita `planet` para filtrar rotas por território.
         """
-        result = self.validator.validate_move(stack_uid, destination)
+        # Usa o planet passado como argumento, ou o armazenado
+        active_planet = planet or self.planet
+
+        result = self.validator.validate_move(
+            stack_uid,
+            destination,
+            planet=active_planet,
+            owner_civ_id=owner_civ_id,
+        )
 
         if not result.valid:
             return False, result.reason, None
@@ -71,7 +69,6 @@ class CommandManager:
             status=CommandStatus.PENDING,
         )
 
-        # Sobrescreve comando anterior da mesma stack (se houver)
         old = self._pending.get(stack_uid)
         if old:
             old.status = CommandStatus.CANCELLED
@@ -82,7 +79,6 @@ class CommandManager:
         return True, f"Comando registrado (custo total: {total_cost:.0f} turnos)", cmd
 
     def cancel_command(self, stack_uid: str) -> bool:
-        """Cancela o comando pendente de uma stack."""
         cmd = self._pending.pop(stack_uid, None)
         if cmd:
             cmd.status = CommandStatus.CANCELLED
@@ -90,24 +86,15 @@ class CommandManager:
         return False
 
     def get_command(self, stack_uid: str) -> Optional[UnitCommand]:
-        """Retorna o comando pendente de uma stack (se houver)."""
         return self._pending.get(stack_uid)
 
     def all_pending(self) -> list[UnitCommand]:
-        """Todos os comandos pendentes do turno."""
         return [c for c in self._pending.values() if c.status == CommandStatus.PENDING]
 
     def pending_count(self) -> int:
         return len(self.all_pending())
 
     def flush_to_engine(self) -> int:
-        """
-        Para cada comando PENDING, calcula o próximo tile alcançável
-        neste turno (considerando budget acumulado) e submete ao TurnEngine.
-
-        Returns:
-            Número de ordens submetidas.
-        """
         from core.commands.pathfinding import (
             tiles_reachable_this_turn,
             allowed_biomes_for_stack,
@@ -128,7 +115,6 @@ class CommandManager:
                 cmd.status = CommandStatus.INVALID
                 continue
 
-            # Recalibrar remaining_path se a stack não está no início
             if rpath[0] != stack.tile:
                 try:
                     idx = rpath.index(stack.tile)
@@ -145,10 +131,8 @@ class CommandManager:
             unit_keys = [u.unit_key for u in stack.units]
             allowed = allowed_biomes_for_stack(self.graph, stack)
 
-            # Adicionar budget deste turno ao acumulado
             cmd.accumulated_budget += TURN_BUDGET
 
-            # Quantos tiles do remaining_path a stack percorre com o budget acumulado
             advance_idx = tiles_reachable_this_turn(
                 self.graph,
                 rpath[0],
@@ -159,12 +143,9 @@ class CommandManager:
             )
 
             if advance_idx == 0:
-                # Ainda não tem budget suficiente para o próximo tile
-                # Mantém PENDING, o budget acumulado já foi incrementado
                 cmd.status = CommandStatus.PENDING
                 continue
 
-            # Calcular custo real do trecho percorrido e descontar do acumulado
             cost_spent = 0
             for i in range(1, advance_idx + 1):
                 tile = rpath[i]
@@ -176,7 +157,6 @@ class CommandManager:
             if cmd.accumulated_budget < 0:
                 cmd.accumulated_budget = 0
 
-            # Submeter o tile destino deste turno ao TurnEngine
             step_target = rpath[advance_idx]
             self.turn_engine.submit_order(cmd.stack_uid, step_target)
             cmd.status = CommandStatus.SUBMITTED
@@ -187,8 +167,7 @@ class CommandManager:
     def advance_persistent_commands(self) -> None:
         """
         Chamado APÓS resolve_turn().
-        Atualiza remaining_path dos comandos que ainda não chegaram ao destino.
-        Remove comandos que completaram a jornada.
+        Recalcula rotas com filtro de território.
         """
         to_remove: list[str] = []
 
@@ -209,30 +188,31 @@ class CommandManager:
 
             current_tile = stack.tile
 
-            # Chegou ao destino final?
             if current_tile == cmd.destination:
                 to_remove.append(uid)
                 print(f"  ✅ Stack {uid[:8]}… chegou ao destino {cmd.destination}.")
                 continue
 
-            # Atualizar remaining_path para começar do tile atual
             if current_tile in rpath:
                 idx = rpath.index(current_tile)
                 cmd.remaining_path = rpath[idx:]
             else:
-                # Stack foi parar em tile fora do path — recalcular
                 from core.commands.pathfinding import (
                     find_path,
                     allowed_biomes_for_stack,
                 )
                 allowed = allowed_biomes_for_stack(self.graph, stack)
                 unit_keys = [u.unit_key for u in stack.units]
+
+                # Passa planet e owner_id no recálculo
                 new_path = find_path(
                     self.graph,
                     current_tile,
                     cmd.destination,
                     allowed_biomes=allowed,
                     unit_keys=unit_keys,
+                    planet=self.planet,
+                    owner_id=cmd.owner_civ_id,
                 )
                 if new_path:
                     cmd.remaining_path = new_path
@@ -242,12 +222,10 @@ class CommandManager:
                     print(f"  ⚠️ Stack {uid[:8]}… sem caminho para {cmd.destination}. Comando removido.")
                     continue
 
-            # Manter como PENDING para o próximo turno
             cmd.status = CommandStatus.PENDING
 
         for uid in to_remove:
             self._pending.pop(uid, None)
 
     def clear(self) -> None:
-        """Limpa TODOS os comandos (usar apenas em reset total, NÃO entre turnos)."""
         self._pending.clear()

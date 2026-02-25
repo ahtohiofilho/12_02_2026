@@ -13,7 +13,6 @@ Tile = Tuple[int, int]
 class Controller:
     """
     Controller orquestra UI <-> Game (Planet) e repassa comandos para a Scene.
-    Controller NÃO fala diretamente com OpenGL/renderers; fala com self.window.scene.
     """
 
     def __init__(self, app):
@@ -24,15 +23,14 @@ class Controller:
         self.selection = SelectionState()
 
         # ── Debug Mode ──
-        self.debug_mode: bool = True  # Mude para False para desabilitar
-        self._controlled_civ_index: int = 0  # índice na lista de civs
+        self.debug_mode: bool = True
+        self._controlled_civ_index: int = 0
 
     # ----------------------------
     # Debug: Civilização controlada
     # ----------------------------
     @property
     def controlled_civ(self):
-        """Retorna a civilização atualmente controlada."""
         if not self.game:
             return None
         if self.debug_mode:
@@ -43,15 +41,10 @@ class Controller:
 
     @property
     def controlled_civ_id(self) -> int:
-        """ID da civ controlada."""
         civ = self.controlled_civ
         return civ.id if civ else 0
 
     def cycle_controlled_civ(self, direction: int = 1):
-        """
-        Cicla a civilização controlada.
-        direction: +1 = próxima, -1 = anterior
-        """
         if not self.game or not self.debug_mode:
             return
 
@@ -62,17 +55,14 @@ class Controller:
         self._controlled_civ_index = (self._controlled_civ_index + direction) % len(civs)
         civ = civs[self._controlled_civ_index]
 
-        # Limpar seleção ao trocar de civ
         self.selection.clear()
         self._clear_route_overlay()
 
         print(f"🔄 [DEBUG] Controlando: {civ.name} (id={civ.id}, index={self._controlled_civ_index})")
 
-        # ✅ Atualizar sidebar com a nova civ
         if self.window and hasattr(self.window.sidebar, "civ_manager_view"):
             self.window.sidebar.civ_manager_view.set_data(civ, self.game)
 
-        # Fechar painel de seleção
         if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
             self.window.sidebar.hide_selection_panel()
 
@@ -87,24 +77,20 @@ class Controller:
         self.window.show()
 
     def connect_signals(self):
-        # Sidebar (menu)
         self.window.sidebar.btn_exit.clicked.connect(self.app.quit)
         self.window.sidebar.btn_create.clicked.connect(self.action_create_planet)
 
-        # Sidebar -> Controller
         if self.window and hasattr(self.window.sidebar, "civ_manager_view"):
             self.window.sidebar.civ_manager_view.go_to_capital_requested.connect(self._on_go_to_capital)
 
     @property
     def camera(self):
-        """Acesso à câmera para input/ações."""
         if self.window and self.window.scene:
             return self.window.scene.camera
         return None
 
     @property
     def scene(self):
-        """Fachada para operações de render/UI do mundo."""
         return self.window.scene if (self.window and self.window.scene) else None
 
     # ----------------------------
@@ -132,7 +118,6 @@ class Controller:
         if self.window:
             self.window.sidebar.on_planet_loaded(True)
 
-        # Resetar debug index
         self._controlled_civ_index = 0
         if self.debug_mode:
             civ = self.controlled_civ
@@ -140,23 +125,20 @@ class Controller:
                 print(f"🔧 [DEBUG MODE ATIVO] Controlando: {civ.name} (id={civ.id})")
                 print(f"   Tab = próxima civ | Shift+Tab = civ anterior")
 
-        # Estado visual inicial
         self._clear_route_overlay()
         self._on_go_to_capital()
 
     # ----------------------------
-    # Rotas (overlay) — API do Controller
+    # Rotas (overlay)
     # ----------------------------
     def _set_route_overlay(self, path_tiles):
         if not self.scene:
             return
-
         if hasattr(self.scene, "set_route_path"):
             self.scene.set_route_path(path_tiles)
         else:
             if hasattr(self.scene, "planet_renderer"):
                 self.scene.planet_renderer.set_route_path(path_tiles)
-
         self.scene.update()
 
     def _clear_route_overlay(self):
@@ -170,7 +152,6 @@ class Controller:
             if cmd and cmd.path:
                 self._set_route_overlay(cmd.path)
                 return
-
         self._clear_route_overlay()
 
     # ----------------------------
@@ -178,7 +159,6 @@ class Controller:
     # ----------------------------
     def _on_go_to_capital(self):
         print("Controller: Recebido pedido para ir para a capital.")
-
         if not self.game:
             print("⚠️ Controller: Jogo não carregado.")
             return
@@ -186,7 +166,6 @@ class Controller:
             print("⚠️ Controller: Câmera não disponível.")
             return
 
-        # Usa civ controlada em vez de player_civ
         civ = self.controlled_civ
         if not civ:
             print("⚠️ Controller: Civilização não encontrada.")
@@ -294,7 +273,6 @@ class Controller:
         if not self.game:
             return
 
-        # Usa civ controlada em vez de player_civ
         civ = self.controlled_civ
         if not civ:
             return
@@ -346,15 +324,16 @@ class Controller:
             self._on_tile_info(tile_coords)
             return
 
-        # Usa civ controlada
         civ = self.controlled_civ
         if not civ:
             return
 
+        # ✅ MUDANÇA: passa planet e owner_id para o command manager
         ok, msg, cmd = self.game.command_manager.issue_move_command(
             stack_uid=self.selection.selected_stack_uid,
             destination=tile_coords,
             owner_civ_id=civ.id,
+            planet=self.game,
         )
 
         if ok and cmd and cmd.path:
@@ -364,7 +343,6 @@ class Controller:
 
             if self.input_manager:
                 self.input_manager._last_hover_tile = None
-
         else:
             print(f"❌ Comando rejeitado: {msg}")
             self._clear_route_overlay()
@@ -400,6 +378,7 @@ class Controller:
         budget = movement_budget_for_stack(stack)
         unit_keys = [u.unit_key for u in stack.units]
 
+        # ✅ MUDANÇA: passa planet e owner_id para filtrar território
         path = find_path(
             self.game.graph,
             stack.tile,
@@ -407,6 +386,8 @@ class Controller:
             movement_points=budget,
             allowed_biomes=allowed,
             unit_keys=unit_keys,
+            planet=self.game,
+            owner_id=stack.owner_id,
         )
 
         if path:
@@ -419,6 +400,8 @@ class Controller:
                 movement_points=None,
                 allowed_biomes=allowed,
                 unit_keys=unit_keys,
+                planet=self.game,
+                owner_id=stack.owner_id,
             )
             if path_unlimited:
                 self._set_route_overlay(path_unlimited)
@@ -434,7 +417,6 @@ class Controller:
     def _on_tile_info(self, tile_coords):
         if not self.game:
             return
-
         province = self.game.get_province(tile_coords)
         if province and self.window:
             self.window.sidebar._on_province_selected(province)

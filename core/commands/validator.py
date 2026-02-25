@@ -27,11 +27,11 @@ class CommandValidator:
     Valida comandos ANTES de submetê-los ao TurnEngine.
     Dá feedback imediato ao jogador.
 
-    NOTA: Não limita por budget de 1 turno. O comando pode ser multi-turno.
-    A validação aqui garante apenas que:
+    Garante que:
       - A stack existe e não está vazia
       - O destino existe e é acessível (bioma compatível)
       - Existe um caminho válido até o destino (sem limite de custo)
+      - O caminho não passa por territórios inimigos ou neutros
 
     O controle de avanço por turno é responsabilidade do CommandManager.flush_to_engine().
     """
@@ -44,9 +44,19 @@ class CommandValidator:
         self,
         stack_uid: str,
         destination: Tile,
+        *,
+        planet=None,
+        owner_civ_id: int | None = None,
     ) -> ValidationResult:
-        """Valida um comando de movimento/ataque."""
+        """
+        Valida um comando de movimento/ataque.
 
+        Args:
+            stack_uid:    UID da stack
+            destination:  tile destino
+            planet:       instância do Planet (para filtro de território)
+            owner_civ_id: id da civ dona da stack (para filtro de território)
+        """
         stack = self.stacks.get_stack(stack_uid)
         if stack is None:
             return ValidationResult(False, "Stack não existe.")
@@ -73,10 +83,28 @@ class CommandValidator:
                 f"Bioma '{dest_biome}' não é acessível para esta stack.",
             )
 
+        # ── Verificar se destino é território bloqueado ──
+        effective_owner = owner_civ_id if owner_civ_id is not None else stack.owner_id
+        if planet is not None and effective_owner is not None:
+            from core.diplomacy import Relation
+
+            dest_province = planet.provinces_by_tile.get(destination)
+            if dest_province and dest_province.owner is not None:
+                dest_owner_id = dest_province.owner.id
+                if dest_owner_id != effective_owner:
+                    rel = planet.diplomacy.relation(effective_owner, dest_owner_id)
+                    if rel != Relation.ALLY:
+                        rel_name = rel.name.lower()
+                        return ValidationResult(
+                            False,
+                            f"Destino pertence a uma civilização {rel_name}.",
+                        )
+
         # Unit keys da stack (para custos variáveis)
         unit_keys = [u.unit_key for u in stack.units]
 
         # Pathfinding SEM limite de custo (comando multi-turno)
+        # ✅ Passa planet e owner_id para filtrar territórios inimigos/neutros
         path = find_path(
             self.graph,
             origin=stack.tile,
@@ -84,15 +112,17 @@ class CommandValidator:
             movement_points=None,
             allowed_biomes=biomes,
             unit_keys=unit_keys,
+            planet=planet,
+            owner_id=effective_owner,
         )
 
         if path is None:
             return ValidationResult(
                 False,
-                "Sem caminho válido até o destino.",
+                "Sem caminho válido até o destino (bloqueado por território hostil ou bioma).",
             )
 
-        # Calcular custo total (informativo — quantos "turnos-custo" a jornada leva)
+        # Calcular custo total (informativo)
         total_cost = 0.0
         for tile in path[1:]:
             biome = self.graph.nodes[tile].get("bioma", "Meadow")

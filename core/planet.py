@@ -121,6 +121,7 @@ class Planet:
             graph=self.graph,
             stacks=self.stacks,
             turn_engine=self.turn_engine,
+            planet=self,
         )
         print("\nObjeto Planeta criado e pronto para uso.")
 
