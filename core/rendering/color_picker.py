@@ -156,12 +156,31 @@ class TileColorPicker:
 
         try:
             pixel = gl.glReadPixels(gl_x, gl_y, 1, 1, gl.GL_RGBA, gl.GL_UNSIGNED_BYTE)
-            # Decodifica RGBA para o ID
-            r, g, b, a = pixel[0]
-            tile_id = r + (g << 8) + (b << 16)
+
+            # Normalizar: PyOpenGL retorna formatos diferentes conforme o backend
+            if isinstance(pixel, (bytes, bytearray)):
+                r, g, b, a = pixel[0], pixel[1], pixel[2], pixel[3]
+            elif isinstance(pixel, np.ndarray):
+                flat = pixel.flatten()
+                r, g, b, a = int(flat[0]), int(flat[1]), int(flat[2]), int(flat[3])
+            elif isinstance(pixel, int):
+                # Caso raro: retorno empacotado como int
+                r = pixel & 0xFF
+                g = (pixel >> 8) & 0xFF
+                b = (pixel >> 16) & 0xFF
+                a = (pixel >> 24) & 0xFF
+            else:
+                # Último fallback: tentar indexação direta
+                try:
+                    r, g, b, a = pixel[0], pixel[1], pixel[2], pixel[3]
+                except (IndexError, TypeError):
+                    r, g, b, a = 0, 0, 0, 0
+
+            tile_id = int(r) + (int(g) << 8) + (int(b) << 16)
         except Exception as e:
-            print(f"Erro ao ler pixel: {e}")
+            print(f"⚠️ [ColorPicker] Erro ao ler pixel: {e}")
             tile_id = 0
+
 
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, 0)
 

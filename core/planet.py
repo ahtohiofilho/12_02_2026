@@ -19,6 +19,7 @@ from core.workforce.repo import WorkforceRepository
 from .civilization import Civilization, Province
 from .generation._geography import definir_geografia, seed_from_planet_id
 from .generation._polygons import dicionario_poligonos
+from core.commands.manager import CommandManager
 
 
 class Planet:
@@ -114,6 +115,12 @@ class Planet:
         self.turn_engine = TurnEngine(
             stacks=self.stacks,
             diplomacy=self.diplomacy,
+        )
+
+        self.command_manager = CommandManager(
+            graph=self.graph,
+            stacks=self.stacks,
+            turn_engine=self.turn_engine,
         )
         print("\nObjeto Planeta criado e pronto para uso.")
 

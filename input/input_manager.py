@@ -33,7 +33,17 @@ class InputManager(QObject):
         # Timer para movimento contínuo
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self._process_input)
-        self.update_timer.start(16)  # ~60 FPS
+        self.update_timer.start(19)  # ~60 FPS
+
+        self._left_click_pos = None
+
+        # ── Hover / Preview de rota ──
+        self._hover_timer = QTimer()
+        self._hover_timer.setSingleShot(True)
+        self._hover_timer.setInterval(50)  # 50ms debounce
+        self._hover_timer.timeout.connect(self._process_hover)
+        self._pending_hover_pos = None   # (x, y) do mouse pendente
+        self._last_hover_tile = None     # evita recalcular se tile não mudou
 
     def install_global_filter(self, app: QApplication):
         """
@@ -54,7 +64,7 @@ class InputManager(QObject):
             key_event: QKeyEvent = event
             key = key_event.key()
 
-            # Guardrails corporativos: não conflitar com atalhos do SO/app
+            # Guardrails: não conflitar com atalhos do SO/app
             if key_event.modifiers() & (Qt.ControlModifier | Qt.AltModifier):
                 return False
 
@@ -62,14 +72,20 @@ class InputManager(QObject):
             if self._is_text_input_focused():
                 return False
 
+            # Escape → deselecionar stack
+            if key == Qt.Key_Escape:
+                if event.type() == QEvent.KeyPress and not key_event.isAutoRepeat():
+                    self.controller.on_deselect()
+                return True
+
             # Turn hotkey (evento discreto)
             if key in self.TURN_KEYS:
                 if event.type() == QEvent.KeyPress and not key_event.isAutoRepeat():
                     ctrl = self.controller
                     if ctrl and hasattr(ctrl, "_on_turn_advanced"):
                         ctrl._on_turn_advanced()
-                    return True  # consome
-                return True  # consome keyrelease também (evita propagação)
+                    return True
+                return True
 
             # Camera keys (estado contínuo)
             if key not in self.CAMERA_KEYS:
@@ -91,6 +107,8 @@ class InputManager(QObject):
         if scene and obj == scene:
             if event.type() == QEvent.MouseButtonPress:
                 return self._handle_mouse_press(event)
+            elif event.type() == QEvent.MouseButtonRelease:
+                return self._handle_mouse_release(event)
             elif event.type() == QEvent.MouseMove:
                 return self._handle_mouse_move(event)
             elif event.type() == QEvent.Wheel:
@@ -106,28 +124,51 @@ class InputManager(QObject):
         return isinstance(focused, (QLineEdit, QTextEdit, QPlainTextEdit, QSpinBox, QDoubleSpinBox))
 
     # ==========================================
-    # HANDLERS DE MOUSE (Transferidos da SceneWidget)
+    # HANDLERS DE MOUSE
     # ==========================================
     def _handle_mouse_press(self, event: QMouseEvent) -> bool:
         scene = self.controller.scene
+        if not scene:
+            return False
 
-        # Botão Esquerdo: Inicia o arrasto (rotação da câmera)
+        # Botão Esquerdo: Seleção de unidade OU arrasto de câmera
         if event.button() == Qt.LeftButton:
             self.last_mouse_pos = event.position()
+            self._left_click_pos = event.position()
             return True
 
-        # Botão Direito: Color Picking (Seleção de Tile)
+        # Botão Direito: Comando de movimento
         elif event.button() == Qt.RightButton:
             x = event.position().x()
             y = event.position().y()
-
             tile_coords = scene.get_tile_under_mouse(x, y)
-
             if tile_coords:
-                print(f"🎯 [InputManager] Clicou no tile: {tile_coords}")
-                # TODO: No futuro, chamar self.controller.on_tile_clicked(tile_coords)
-            else:
-                print("🌊 [InputManager] Clicou no espaço/fundo preto.")
+                self.controller.on_tile_right_clicked(tile_coords)
+            return True
+
+        return False
+
+    def _handle_mouse_release(self, event: QMouseEvent) -> bool:
+        """Detecta se foi click (não drag) para selecionar stack."""
+        if event.button() == Qt.LeftButton:
+            scene = self.controller.scene
+            if not scene:
+                return False
+
+            if self._left_click_pos is not None:
+                dx = abs(event.position().x() - self._left_click_pos.x())
+                dy = abs(event.position().y() - self._left_click_pos.y())
+
+                CLICK_THRESHOLD = 5.0  # pixels
+                if dx < CLICK_THRESHOLD and dy < CLICK_THRESHOLD:
+                    x = event.position().x()
+                    y = event.position().y()
+                    tile_coords = scene.get_tile_under_mouse(x, y)
+                    if tile_coords:
+                        self.controller.on_tile_left_clicked(tile_coords)
+
+            self._left_click_pos = None
+            self.last_mouse_pos = None
             return True
 
         return False
@@ -136,18 +177,26 @@ class InputManager(QObject):
         if not self.controller.camera or not self.controller.scene:
             return False
 
+        # ── Arrasto de câmera (botão esquerdo pressionado) ──
         if (event.buttons() & Qt.LeftButton) and self.last_mouse_pos is not None:
             dx = event.position().x() - self.last_mouse_pos.x()
             dy = event.position().y() - self.last_mouse_pos.y()
 
             sensitivity = 0.005
-            self.controller.camera.orbit(delta_azimuth=dx * sensitivity, delta_elevation=dy * sensitivity)
+            self.controller.camera.orbit(
+                delta_azimuth=dx * sensitivity,
+                delta_elevation=dy * sensitivity,
+            )
 
             self.last_mouse_pos = event.position()
             self.controller.scene.update()
             return True
 
-        return False
+        # ── Hover livre (sem botão pressionado) → preview de rota ──
+        pos = event.position()
+        self._pending_hover_pos = (pos.x(), pos.y())
+        self._hover_timer.start()  # reinicia debounce
+        return False  # não consome — permite propagação normal
 
     def _handle_wheel(self, event: QWheelEvent) -> bool:
         if not self.controller.camera or not self.controller.scene:
@@ -158,6 +207,75 @@ class InputManager(QObject):
         self.controller.camera.zoom(delta * zoom_sensitivity)
         self.controller.scene.update()
         return True
+
+    # ==========================================
+    # HOVER / PREVIEW DE ROTA
+    # ==========================================
+    def _process_hover(self):
+        """Chamado após debounce — calcula e exibe preview da rota."""
+        if not self._pending_hover_pos:
+            return
+
+        x, y = self._pending_hover_pos
+        self._pending_hover_pos = None
+
+        controller = self.controller
+        scene = controller.scene
+
+        # Só mostrar preview se tem stack selecionada
+        if not hasattr(controller, 'selection') or not controller.selection.has_selection:
+            return
+
+        if not scene or not controller.game:
+            return
+
+        # Resolve tile sob o mouse
+        tile_coords = scene.get_tile_under_mouse(x, y)
+
+        # Se é o mesmo tile do último hover, não recalcula
+        if tile_coords == self._last_hover_tile:
+            return
+        self._last_hover_tile = tile_coords
+
+        if tile_coords is None:
+            # Mouse fora do planeta → restaura overlay do comando real
+            self._restore_command_overlay()
+            return
+
+        # Delega ao controller
+        controller.on_tile_hovered(tile_coords)
+
+    def _restore_command_overlay(self):
+        """Restaura o overlay do comando pendente (se houver) ou limpa."""
+        controller = self.controller
+
+        if not controller.game or not hasattr(controller, 'selection'):
+            if hasattr(controller, '_clear_route_overlay'):
+                controller._clear_route_overlay()
+            return
+
+        if not controller.selection.has_selection:
+            if hasattr(controller, '_clear_route_overlay'):
+                controller._clear_route_overlay()
+            return
+
+        cmd = controller.game.command_manager.get_command(
+            controller.selection.selected_stack_uid
+        )
+        if cmd and cmd.path:
+            controller._set_route_overlay(cmd.path)
+        else:
+            if hasattr(controller, '_clear_route_overlay'):
+                controller._clear_route_overlay()
+
+        if controller.scene:
+            controller.scene.update()
+
+    def clear_hover_state(self):
+        """Reseta o estado de hover (chamado ao deselecionar)."""
+        self._last_hover_tile = None
+        self._pending_hover_pos = None
+        self._hover_timer.stop()
 
     # ==========================================
     # PROCESSAMENTO DE ESTADO CONTÍNUO (Loop 60 FPS)
@@ -172,27 +290,26 @@ class InputManager(QObject):
 
         # Rotação orbital
         if self.keys_pressed.get(Qt.Key_A):
-            camera.orbit(-self.rotation_speed, 0)  # Esquerda
+            camera.orbit(-self.rotation_speed, 0)
             moved = True
         if self.keys_pressed.get(Qt.Key_D):
-            camera.orbit(self.rotation_speed, 0)  # Direita
+            camera.orbit(self.rotation_speed, 0)
             moved = True
         if self.keys_pressed.get(Qt.Key_W):
-            camera.orbit(0, self.rotation_speed)  # Para cima
+            camera.orbit(0, self.rotation_speed)
             moved = True
         if self.keys_pressed.get(Qt.Key_S):
-            camera.orbit(0, -self.rotation_speed)  # Para baixo
+            camera.orbit(0, -self.rotation_speed)
             moved = True
 
         # Zoom
         if self.keys_pressed.get(Qt.Key_Q):
-            camera.zoom(self.zoom_speed)  # Zoom out
+            camera.zoom(self.zoom_speed)
             moved = True
         if self.keys_pressed.get(Qt.Key_E):
-            camera.zoom(-self.zoom_speed)  # Zoom in
+            camera.zoom(-self.zoom_speed)
             moved = True
 
-        # Redesenha se houve movimento
         if moved:
             if self.controller.scene:
                 self.controller.scene.update()

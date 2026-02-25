@@ -141,23 +141,36 @@ class SceneWidget(QOpenGLWidget):
     # ==========================================================
     # COLOR PICKING - FACHADA
     # ==========================================================
-    def get_tile_under_mouse(self, x: float, y: float) -> Optional[Tile]:
+    def get_tile_under_mouse(self, x, y):
         """
-        Pede ao PlanetRenderer para usar o ColorPicker e descobrir
-        qual tile está sob a coordenada (x, y) da tela.
-        Chamado externamente pelo InputManager.
+        Retorna as coordenadas do tile sob o pixel (x, y).
+        Precisa ativar o contexto OpenGL antes de qualquer chamada GL.
         """
-        if not self.renderer or not self.camera:
+        if not self.renderer or not self.renderer.color_picker:
             return None
 
-        if not hasattr(self.renderer, "color_picker") or self.renderer.color_picker is None:
+        if not self.renderer.color_picker.initialized:
             return None
 
-        return self.renderer.color_picker.get_tile_at_pixel(
-            x, y,
-            self.width(), self.height(),
-            self.camera
-        )
+        if not self.camera:
+            return None
+
+        # ===== CORREÇÃO: ativar contexto GL =====
+        self.makeCurrent()
+        try:
+            result = self.renderer.color_picker.get_tile_at_pixel(
+                x, y,
+                self.width(), self.height(),
+                self.camera,
+            )
+        except Exception as e:
+            print(f"⚠️ [Scene] Erro no color picker: {e}")
+            result = None
+        finally:
+            self.doneCurrent()
+        # ========================================
+
+        return result
 
     # ----------------------------
     # Ciclo de vida OpenGL (QOpenGLWidget)
