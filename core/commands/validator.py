@@ -7,7 +7,6 @@ from typing import Optional
 from core.commands.pathfinding import (
     find_path,
     allowed_biomes_for_stack,
-    movement_budget_for_stack,
 )
 from config.movement_costs import get_stack_entry_cost
 from core.stacks.repo import StackRepository
@@ -26,7 +25,15 @@ class ValidationResult:
 class CommandValidator:
     """
     Valida comandos ANTES de submetê-los ao TurnEngine.
-    Dá feedback imediato ao jogador (não precisa esperar o turno resolver).
+    Dá feedback imediato ao jogador.
+
+    NOTA: Não limita por budget de 1 turno. O comando pode ser multi-turno.
+    A validação aqui garante apenas que:
+      - A stack existe e não está vazia
+      - O destino existe e é acessível (bioma compatível)
+      - Existe um caminho válido até o destino (sem limite de custo)
+
+    O controle de avanço por turno é responsabilidade do CommandManager.flush_to_engine().
     """
 
     def __init__(self, graph, stacks: StackRepository):
@@ -69,44 +76,23 @@ class CommandValidator:
         # Unit keys da stack (para custos variáveis)
         unit_keys = [u.unit_key for u in stack.units]
 
-        # Budget baseado no domínio
-        budget = movement_budget_for_stack(stack)
-        if budget <= 0:
-            return ValidationResult(False, "Stack não tem pontos de movimento.")
-
-        # Pathfinding com custos variáveis por unidade×bioma
+        # Pathfinding SEM limite de custo (comando multi-turno)
         path = find_path(
             self.graph,
             origin=stack.tile,
             destination=destination,
-            movement_points=budget,
+            movement_points=None,
             allowed_biomes=biomes,
             unit_keys=unit_keys,
         )
 
         if path is None:
-            # Tentar sem budget para distinguir "fora de alcance" de "impossível"
-            path_unlimited = find_path(
-                self.graph,
-                origin=stack.tile,
-                destination=destination,
-                movement_points=None,
-                allowed_biomes=biomes,
-                unit_keys=unit_keys,
+            return ValidationResult(
+                False,
+                "Sem caminho válido até o destino.",
             )
 
-            if path_unlimited is None:
-                return ValidationResult(
-                    False,
-                    "Sem caminho válido até o destino.",
-                )
-            else:
-                return ValidationResult(
-                    False,
-                    f"Destino fora de alcance neste turno (budget={budget}).",
-                )
-
-        # Calcular custo real usando os custos por unidade×bioma
+        # Calcular custo total (informativo — quantos "turnos-custo" a jornada leva)
         total_cost = 0.0
         for tile in path[1:]:
             biome = self.graph.nodes[tile].get("bioma", "Meadow")

@@ -29,16 +29,20 @@ class SideBar(QWidget):
         self.province_detail = ProvinceDetailPanel(self.controller)
         self.stacked_widget.addWidget(self.province_detail)
 
-        # Índice 3: Painel de seleção/comando militar (NOVO)
+        # Índice 3: Painel de seleção/comando militar
         self.selection_panel = SelectionPanel(self.controller)
         self.stacked_widget.addWidget(self.selection_panel)
+
+        # ── Snapshot da tela antes da seleção ──
+        self._pre_selection_page: int | None = None
+        self._pre_selection_tab: int | None = None
 
         # === CONEXÕES INTERNAS ===
         self.civ_manager_view.province_selected.connect(self._on_province_selected)
         self.province_detail.back_requested.connect(self._on_back_from_province)
         self.province_detail.go_to_province_requested.connect(self._on_go_to_province)
 
-        # Conexões do SelectionPanel (NOVO)
+        # Conexões do SelectionPanel
         self.selection_panel.back_requested.connect(self._on_back_from_selection)
         self.selection_panel.cancel_command_requested.connect(self._on_cancel_command)
         self.selection_panel.go_to_tile_requested.connect(self._on_go_to_tile)
@@ -69,6 +73,42 @@ class SideBar(QWidget):
         grid.addWidget(self.btn_exit, 2, 2, alignment=Qt.AlignRight | Qt.AlignBottom)
 
         return widget
+
+    # ================================================================
+    # SNAPSHOT — memorizar / restaurar tela
+    # ================================================================
+
+    def _save_screen_snapshot(self) -> None:
+        """Salva a página atual e a aba ativa (se for province_detail)."""
+        current = self.stacked_widget.currentIndex()
+
+        # Só salva se não estiver já no selection panel (evita sobrescrever)
+        if current == 3:
+            return
+
+        self._pre_selection_page = current
+
+        # Se estava no painel de província, salva a aba ativa
+        if current == 2:
+            self._pre_selection_tab = self.province_detail.tab_widget.currentIndex()
+        else:
+            self._pre_selection_tab = None
+
+    def _restore_screen_snapshot(self) -> None:
+        """Restaura a página e aba que estavam ativas antes da seleção."""
+        if self._pre_selection_page is not None:
+            self.stacked_widget.setCurrentIndex(self._pre_selection_page)
+
+            # Restaurar aba do province detail se aplicável
+            if self._pre_selection_page == 2 and self._pre_selection_tab is not None:
+                self.province_detail.tab_widget.setCurrentIndex(self._pre_selection_tab)
+        else:
+            # Fallback: volta para o civ manager
+            self.stacked_widget.setCurrentIndex(1)
+
+        # Limpa snapshot
+        self._pre_selection_page = None
+        self._pre_selection_tab = None
 
     # ================================================================
     # NAVEGAÇÃO
@@ -113,7 +153,8 @@ class SideBar(QWidget):
     # ================================================================
 
     def show_selection_panel(self):
-        """Abre o painel de seleção e atualiza com o estado atual."""
+        """Memoriza a tela atual e abre o painel de seleção."""
+        self._save_screen_snapshot()
         self.selection_panel.update_from_selection(self.controller)
         self.stacked_widget.setCurrentIndex(3)
 
@@ -123,17 +164,17 @@ class SideBar(QWidget):
             self.selection_panel.update_from_selection(self.controller)
 
     def hide_selection_panel(self):
-        """Volta para o civ manager (índice 1)."""
+        """Restaura a tela que estava aberta antes da seleção."""
         if self.stacked_widget.currentIndex() == 3:
-            self.stacked_widget.setCurrentIndex(1)
+            self._restore_screen_snapshot()
 
     def _on_back_from_selection(self):
-        """◀ Back no painel de seleção → volta ao civ manager."""
+        """◀ Back no painel de seleção → restaura tela anterior."""
         self.controller.selection.clear()
         self.controller._clear_route_overlay()
         if self.controller.scene:
             self.controller.scene.update()
-        self.stacked_widget.setCurrentIndex(1)
+        self._restore_screen_snapshot()
 
     def _on_cancel_command(self):
         """Cancela o comando pendente da stack selecionada."""

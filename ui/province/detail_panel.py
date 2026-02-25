@@ -27,8 +27,7 @@ from ui.province.military_ui import (
     count_units_in_tile,
     format_units_by_category,
     get_unit_category,
-)
-# === NOVAS IMPORTAÇÕES PARA ARQUITETURA MODULAR ===
+)# === NOVAS IMPORTAÇÕES PARA ARQUITETURA MODULAR ===
 from ui.province.workforce_tab import WorkforceTabWidget
 from ui.province.trade_tab import TradeTabWidget
 from core.workforce.facade import ProvinceWorkforceFacade

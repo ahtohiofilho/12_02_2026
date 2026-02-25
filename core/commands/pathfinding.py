@@ -16,13 +16,12 @@ Tile = tuple[int, int]
 
 
 # ──────────────────────────────────────────────
-# Budget por domínio (custo acumulado máximo por turno)
+# Budget por turno (em "turnos-custo")
 # ──────────────────────────────────────────────
-DOMAIN_BUDGET: dict[str, int] = {
-    "land":  12,
-    "naval": 12,
-    "air":   20,
-}
+# Os custos na tabela representam TURNOS para cruzar.
+# Cada turno de jogo concede exatamente 1 unidade de tempo.
+# Uma fragata em Ocean (custo 2) precisa de 2 turnos para cruzar 1 tile.
+TURN_BUDGET: int = 1
 
 
 # ──────────────────────────────────────────────
@@ -60,14 +59,56 @@ def allowed_biomes_for_stack(
 
 def movement_budget_for_stack(stack) -> int:
     """
-    Budget de custo acumulado por turno para a stack.
-    Baseado no domínio da unidade mais restritiva.
+    Budget por turno = TURN_BUDGET (sempre 1).
+    O custo da tabela já está em turnos, então 1 turno = 1 unidade de tempo.
     """
-    if not stack or not stack.units:
+    return TURN_BUDGET
+
+
+def tiles_reachable_this_turn(
+    graph: nx.DiGraph,
+    origin: Tile,
+    path: list[Tile],
+    unit_keys: list[str],
+    allowed_biomes: set[str] | None = None,
+    budget: int = TURN_BUDGET,
+) -> int:
+    """
+    Dado um caminho completo, retorna quantos tiles da lista a stack
+    consegue percorrer neste turno (acumulando custo até estourar o budget).
+
+    Retorna o ÍNDICE do último tile alcançável no path (0 = não sai do lugar).
+
+    Lógica de acumulação fracionária:
+      - Cada tile tem custo C (em turnos).
+      - A cada turno, a stack ganha +1 de budget.
+      - Se o custo acumulado do próximo tile > budget disponível, para.
+      - Budget residual é preservado entre turnos (via remaining_budget na stack).
+    """
+    if not path or len(path) < 2:
         return 0
 
-    domain = get_unit_domain(stack.units[0].unit_key)
-    return DOMAIN_BUDGET.get(domain, 12)
+    spent = 0
+    last_reachable = 0  # índice 0 = origin, não se move
+
+    for i in range(1, len(path)):
+        tile = path[i]
+        biome = graph.nodes[tile].get("bioma", "Meadow") if tile in graph else "Meadow"
+
+        if allowed_biomes is not None and biome not in allowed_biomes:
+            break
+
+        cost = get_stack_entry_cost(unit_keys, biome)
+        if cost is None:
+            break
+
+        spent += cost
+        if spent <= budget:
+            last_reachable = i
+        else:
+            break
+
+    return last_reachable
 
 
 def max_movement_for_stack(stack) -> int:
@@ -96,19 +137,18 @@ def _make_weight_fn(
     Retorna uma função de peso compatível com nx.shortest_path(weight=fn).
 
     A função recebe (u, v, edge_data) e retorna o custo de ENTRAR em v
-    considerando todas as unidades da stack.
+    considerando todas as unidades da stack (mais lenta dita o ritmo).
     Se v for inacessível → retorna None (NetworkX ignora a aresta).
     """
     def weight_fn(u, v, edge_data):
         biome = graph.nodes[v].get("bioma", "Meadow")
 
-        # Filtro de biomas permitidos
         if allowed_biomes is not None and biome not in allowed_biomes:
             return None
 
         cost = get_stack_entry_cost(unit_keys, biome)
         if cost is None:
-            return None  # bioma inacessível para alguma unidade
+            return None
 
         return cost
 
@@ -131,11 +171,16 @@ def find_path(
     """
     Dijkstra entre origin e destination com custos variáveis por unidade×bioma.
 
+    NOTA: movement_points aqui é usado apenas como FILTRO de custo total
+    (para validação). O caminho completo é sempre retornado se existir.
+    Para saber quantos tiles a stack avança por turno, use
+    tiles_reachable_this_turn().
+
     Args:
         graph:            NetworkX DiGraph do planeta
         origin:           tile de origem
         destination:      tile de destino
-        movement_points:  budget máximo de custo acumulado (None = sem limite)
+        movement_points:  custo máximo total permitido (None = sem limite)
         allowed_biomes:   biomas permitidos para filtragem
         unit_keys:        lista de unit_keys da stack (ativa custos variáveis)
         weight:           fallback — nome do atributo de aresta (usado se unit_keys=None)
@@ -160,7 +205,6 @@ def find_path(
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return None
 
-        # Validar budget
         if movement_points is not None and cost > movement_points:
             return None
 
@@ -172,14 +216,12 @@ def find_path(
     except (nx.NetworkXNoPath, nx.NodeNotFound):
         return None
 
-    # Filtrar por biomas permitidos
     if allowed_biomes is not None:
         for tile in path[1:]:
             biome = graph.nodes.get(tile, {}).get("bioma", "")
             if biome not in allowed_biomes:
                 return None
 
-    # Validar range total
     if movement_points is not None:
         total_cost = 0.0
         for i in range(len(path) - 1):
@@ -212,7 +254,6 @@ def get_reachable_tiles(
     if movement_points <= 0:
         return {}
 
-    # ── Modo com custos variáveis ──
     if unit_keys:
         w_fn = _make_weight_fn(graph, unit_keys, allowed_biomes)
 
@@ -229,7 +270,6 @@ def get_reachable_tiles(
             if tile != origin
         }
 
-    # ── Modo legado ──
     try:
         lengths = nx.single_source_dijkstra_path_length(
             graph, origin, cutoff=movement_points, weight=weight,

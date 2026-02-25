@@ -158,9 +158,9 @@ class Controller:
             print("⚠️ Nenhum planeta ativo.")
             return
 
-        # 1) Flush comandos pendentes → TurnEngine
+        # 1) Flush comandos → TurnEngine (agora submete apenas 1 step)
         cmd_count = self.game.command_manager.flush_to_engine()
-        print(f"📋 {cmd_count} comando(s) submetido(s) ao TurnEngine.")
+        print(f"📋 {cmd_count} ordem(ns) submetida(s) ao TurnEngine.")
 
         # 2) Produção e economia
         print("\n🏭 Processando produção e economia...")
@@ -171,7 +171,7 @@ class Controller:
 
         self.game.economy.invalidar_cache()
 
-        # 3) Resolver turno
+        # 3) Resolver turno (movimentos + combates de 1 step)
         print("\n⚔️ Resolvendo movimentos e combates...")
         turn_report = self.game.turn_engine.resolve_turn()
 
@@ -179,23 +179,36 @@ class Controller:
         print(f"   Ordens processadas: {turn_report.total_orders}")
         print(f"   Batalhas: {turn_report.total_battles}")
 
-        # 4) Limpar comandos e seleção
-        self.game.command_manager.clear()
-        self.selection.clear()
-        self._clear_route_overlay()
+        # 4) Avançar comandos persistentes (atualiza remaining_path)
+        self.game.command_manager.advance_persistent_commands()
 
-        # 5) Limpar estado de hover
+        # 5) Atualizar overlay da seleção atual (se houver comando em andamento)
+        if self.selection.has_selection:
+            cmd = self.game.command_manager.get_command(
+                self.selection.selected_stack_uid
+            )
+            if cmd and cmd.remaining_path:
+                self._set_route_overlay(cmd.remaining_path)
+            else:
+                self._clear_route_overlay()
+                # Comando terminou — limpar seleção
+                self.selection.clear()
+        else:
+            self._clear_route_overlay()
+
+        # 6) Limpar estado de hover
         if self.input_manager:
             self.input_manager.clear_hover_state()
 
-        # 6) Atualizar UI
+        # 7) Atualizar UI
         self._update_ui_post_turn()
 
-        # 7) Fechar painel de seleção e voltar ao civ manager
-        if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
-            self.window.sidebar.hide_selection_panel()
+        # 8) Fechar painel de seleção se não há mais comando ativo
+        if not self.selection.has_selection:
+            if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
+                self.window.sidebar.hide_selection_panel()
 
-        # 8) Re-render 3D
+        # 9) Re-render 3D
         if self.scene:
             if hasattr(self.scene, "update_units_data"):
                 self.scene.update_units_data(self.game)
