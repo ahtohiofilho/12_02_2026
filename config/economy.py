@@ -25,8 +25,8 @@ ALIMENTO_POR_BIOMA: dict[str, str] = {
     "Savanna":   "Soybean",
     "Mountains": "Barley",
     "Desert":    "Sorghum",
-    "Coast":     "Fish",
-    "Sea":       "Fish",
-    "Ocean":     "Fish",
-    "Ice":       "Seal Meat",
+    "Coast":     None,
+    "Sea":       None,
+    "Ocean":     None,
+    "Ice":       None
 }

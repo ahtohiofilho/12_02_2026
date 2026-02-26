@@ -150,6 +150,27 @@ class SideBar(QWidget):
         if self.stacked_widget.currentIndex() == 3:
             self.selection_panel.update_from_selection(self.controller)
 
+    def update_units_views(self) -> None:
+        """
+        Atualiza qualquer UI que dependa da seleção/comando da stack.
+        Serve para o caso em que a stack está sendo exibida:
+          - no SelectionPanel (page 3)
+          - embutida na aba Units da província (page 2)
+        """
+        # Se o painel de seleção estiver aberto
+        if self.stacked_widget.currentIndex() == 3:
+            self.selection_panel.update_from_selection(self.controller)
+
+        # Se o painel de província estiver aberto
+        if self.stacked_widget.currentIndex() == 2:
+            # Aba Units (tab_units) existe no seu ProvinceDetailPanel
+            try:
+                self.province_detail.tab_units.update_display()
+            except Exception:
+                # fallback defensivo (não derruba UI se algo mudar)
+                if hasattr(self.province_detail, "tab_units") and hasattr(self.province_detail.tab_units, "update_display"):
+                    self.province_detail.tab_units.update_display()
+
     def hide_selection_panel(self):
         if self.stacked_widget.currentIndex() == 3:
             self._restore_screen_snapshot()
@@ -168,7 +189,7 @@ class SideBar(QWidget):
             ctrl._clear_route_overlay()
             ctrl.selection.preview_path = None
             print("🚫 Comando cancelado via painel.")
-        self.update_selection_panel()
+        self.update_units_views()
         if ctrl.scene:
             ctrl.scene.update()
 

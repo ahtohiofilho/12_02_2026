@@ -32,7 +32,7 @@ from ui.province.workforce_tab import WorkforceTabWidget
 from ui.province.trade_tab import TradeTabWidget
 from core.workforce.facade import ProvinceWorkforceFacade
 from core.trade.facade import ProvinceTradeFacade
-from ui.province.combat_preview import CombatPreviewWidget
+from ui.province.units_tab import ProvinceUnitsTabWidget
 
 
 # ===================================================
@@ -145,9 +145,9 @@ class ProvinceDetailPanel(QWidget):
         self.tab_military = self._create_military_tab()
         self.tab_widget.addTab(self.tab_military, "⚔️ Military")
 
-        # Tab 4: Aba de análise de chance de vitória
-        self.tab_combat = CombatPreviewWidget()
-        self.tab_widget.addTab(self.tab_combat, "🎲 Combat")
+        # Tab 4: Units (stack info + combat preview)
+        self.tab_units = ProvinceUnitsTabWidget(self.controller)
+        self.tab_widget.addTab(self.tab_units, "🎖️ Units")
 
         layout.addWidget(self.tab_widget, 1)
 
@@ -524,6 +524,8 @@ class ProvinceDetailPanel(QWidget):
             self.workforce_tab.update_display()
         if hasattr(self.trade_tab, 'update_display'):
             self.trade_tab.update_display()
+        if hasattr(self, "tab_units") and hasattr(self.tab_units, "update_display"):
+            self.tab_units.update_display()
 
         # --- ATUALIZA ABAS QUE AINDA SÃO INTERNAS ---
         self._update_garrison_summary()
