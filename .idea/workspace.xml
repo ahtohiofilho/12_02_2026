@@ -4,14 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementei o bloqueio de províncias neutras e inimigas no cálculo da rota de movimento de unidades.">
-      <change afterPath="$PROJECT_DIR$/ui/province/units_tab.py" afterDir="false" />
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Modifiquei o comportamento ao se clicar em stacks dentro da província.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/economy.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/economy.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/province/detail_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/detail_panel.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/sidebar.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/sidebar.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/input/input_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/input/input_manager.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -298,7 +294,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772028415784</updated>
     </task>
-    <option name="localTasksCounter" value="28" />
+    <task id="LOCAL-00028" summary="Modifiquei o comportamento ao se clicar em stacks dentro da província.">
+      <option name="closed" value="true" />
+      <created>1772130031873</created>
+      <option name="number" value="00028" />
+      <option name="presentableId" value="LOCAL-00028" />
+      <option name="project" value="LOCAL" />
+      <updated>1772130031873</updated>
+    </task>
+    <option name="localTasksCounter" value="29" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -313,7 +317,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Estabeleci um tema global cinza escuro." />
     <MESSAGE value="Nesse commit vai tanta coisa que é difícil descrever." />
     <MESSAGE value="Implementei uma base para o sistema de turnos." />
     <MESSAGE value="As bandeiras estão sendo renderizadas na cena 3D." />
@@ -338,6 +341,7 @@
     <MESSAGE value="Reorganizei o sistema de comandos. Agora parece sem erros." />
     <MESSAGE value="Implementado o modo DEBUG, através do qual posso trocar de civilização usando TAB/Shift + TAB." />
     <MESSAGE value="Implementei o bloqueio de províncias neutras e inimigas no cálculo da rota de movimento de unidades." />
-    <option name="LAST_COMMIT_MESSAGE" value="Implementei o bloqueio de províncias neutras e inimigas no cálculo da rota de movimento de unidades." />
+    <MESSAGE value="Modifiquei o comportamento ao se clicar em stacks dentro da província." />
+    <option name="LAST_COMMIT_MESSAGE" value="Modifiquei o comportamento ao se clicar em stacks dentro da província." />
   </component>
 </project>

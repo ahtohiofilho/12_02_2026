@@ -43,6 +43,7 @@ class InputManager(QObject):
         self._hover_timer.setInterval(50)  # 50ms debounce
         self._hover_timer.timeout.connect(self._process_hover)
         self._pending_hover_pos = None   # (x, y) do mouse pendente
+        self._current_hover_pos = None   # rastreia o mouse constantemente
         self._last_hover_tile = None     # evita recalcular se tile não mudou
 
     def install_global_filter(self, app: QApplication):
@@ -93,6 +94,19 @@ class InputManager(QObject):
                         ctrl._on_turn_advanced()
                     return True
                 return True
+
+            # ── Shift → Mostra preview de rota se pressionado ──
+            if key == Qt.Key_Shift:
+                if event.type() == QEvent.KeyPress and not key_event.isAutoRepeat():
+                    # Força o recálculo do hover imediatamente no local atual do mouse
+                    if hasattr(self, '_current_hover_pos') and self._current_hover_pos:
+                        self._pending_hover_pos = self._current_hover_pos
+                        self._hover_timer.start(0)
+                elif event.type() == QEvent.KeyRelease and not key_event.isAutoRepeat():
+                    # Limpa o preview quando solta o Shift
+                    self._restore_command_overlay()
+                    self._last_hover_tile = None
+                return False  # Retorna False para permitir que outros atalhos com Shift funcionem
 
             # Camera keys (estado contínuo)
             if key not in self.CAMERA_KEYS:
@@ -201,9 +215,11 @@ class InputManager(QObject):
 
         # ── Hover livre (sem botão pressionado) → preview de rota ──
         pos = event.position()
+        self._current_hover_pos = (pos.x(), pos.y()) # Salva a posição contínua
         self._pending_hover_pos = (pos.x(), pos.y())
         self._hover_timer.start()  # reinicia debounce
         return False  # não consome — permite propagação normal
+
 
     def _handle_wheel(self, event: QWheelEvent) -> bool:
         if not self.controller.camera or not self.controller.scene:
@@ -234,6 +250,13 @@ class InputManager(QObject):
             return
 
         if not scene or not controller.game:
+            return
+
+        # ── Só calcula e mostra a rota se o Shift estiver pressionado ──
+        modifiers = QApplication.keyboardModifiers()
+        if not (modifiers & Qt.ShiftModifier):
+            self._restore_command_overlay()
+            self._last_hover_tile = None
             return
 
         # Resolve tile sob o mouse
