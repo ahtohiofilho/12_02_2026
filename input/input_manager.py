@@ -234,8 +234,9 @@ class InputManager(QObject):
     # ==========================================
     # HOVER / PREVIEW DE ROTA
     # ==========================================
+
     def _process_hover(self):
-        """Chamado após debounce — calcula e exibe preview da rota."""
+        """Chamado após debounce — calcula cursor e exibe preview da rota."""
         if not self._pending_hover_pos:
             return
 
@@ -245,34 +246,37 @@ class InputManager(QObject):
         controller = self.controller
         scene = controller.scene
 
-        # Só mostrar preview se tem stack selecionada
-        if not hasattr(controller, 'selection') or not controller.selection.has_selection:
-            return
-
         if not scene or not controller.game:
-            return
-
-        # ── Só calcula e mostra a rota se o Shift estiver pressionado ──
-        modifiers = QApplication.keyboardModifiers()
-        if not (modifiers & Qt.ShiftModifier):
-            self._restore_command_overlay()
-            self._last_hover_tile = None
             return
 
         # Resolve tile sob o mouse
         tile_coords = scene.get_tile_under_mouse(x, y)
 
-        # Se é o mesmo tile do último hover, não recalcula
+        # ── 1. ATUALIZAÇÃO DO CURSOR (Independente do Shift) ──
+        if hasattr(controller, 'update_cursor_for_tile'):
+            controller.update_cursor_for_tile(tile_coords)
+
+        # Só continua para o preview de rota se tiver stack selecionada
+        if not hasattr(controller, 'selection') or not controller.selection.has_selection:
+            return
+
+        # Se é o mesmo tile do último hover, não recalcula o dijkstra da rota
         if tile_coords == self._last_hover_tile:
             return
         self._last_hover_tile = tile_coords
+
+        # ── 2. PREVIEW DA ROTA (Apenas se Shift pressionado) ──
+        modifiers = QApplication.keyboardModifiers()
+        if not (modifiers & Qt.ShiftModifier):
+            self._restore_command_overlay()
+            return
 
         if tile_coords is None:
             # Mouse fora do planeta → restaura overlay do comando real
             self._restore_command_overlay()
             return
 
-        # Delega ao controller
+        # Delega ao controller para calcular a rota
         controller.on_tile_hovered(tile_coords)
 
     def _restore_command_overlay(self):

@@ -145,11 +145,6 @@ class TileUnitsRenderer:
                     final_center = (center_vec.x, center_vec.y, center_vec.z)
                 # =======================================================
 
-                # Carrega textura se for nova
-                if sprite_key not in self.textures_cache:
-                    print(f"   -> Imagem nova! Tentando carregar do HD: {sprite_key}.png")
-                    self.textures_cache[sprite_key] = self._load_texture(sprite_key)
-
                 self.instances.append({
                     "center": final_center,
                     "sprite_key": sprite_key,
@@ -236,6 +231,10 @@ class TileUnitsRenderer:
 
         for inst in self.instances:
             sprite_key = inst["sprite_key"]
+            # Aqui temos 100% de garantia que o OpenGL está ativo e pronto!
+            if sprite_key not in self.textures_cache:
+                print(f"   -> [Render] Carregando textura na GPU: {sprite_key}.png")
+                self.textures_cache[sprite_key] = self._load_texture(sprite_key)
             texture_id = self.textures_cache.get(sprite_key)
             if not texture_id:
                 continue
