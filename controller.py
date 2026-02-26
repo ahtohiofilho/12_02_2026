@@ -7,6 +7,13 @@ from core.planet import Planet
 from input.input_manager import InputManager
 from core.selection.state import SelectionState
 
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QCursor
+from config.unit_stats import get_unit_stats
+from core.diplomacy import Relation
+from core.commands.pathfinding import allowed_biomes_for_stack
+
+
 Tile = Tuple[int, int]
 
 
@@ -296,8 +303,13 @@ class Controller:
             else:
                 self._clear_route_overlay()
 
-            if self.window and hasattr(self.window.sidebar, "show_selection_panel"):
-                self.window.sidebar.show_selection_panel()
+            # ✅ Se o tile tem província, abre o painel da província
+            province = self.game.get_province(tile_coords)
+            if province and self.window:
+                self.window.sidebar._on_province_selected(province)
+            else:
+                if self.window and hasattr(self.window.sidebar, "show_selection_panel"):
+                    self.window.sidebar.show_selection_panel()
 
         else:
             self.selection.clear()
@@ -309,6 +321,11 @@ class Controller:
 
             if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
                 self.window.sidebar.hide_selection_panel()
+
+            # ✅ Se clicou numa província (mesmo sem stack própria), abre o painel da província
+            province = self.game.get_province(tile_coords)
+            if province and self.window:
+                self.window.sidebar._on_province_selected(province)
 
         if self.scene:
             self.scene.update()
@@ -347,11 +364,83 @@ class Controller:
             print(f"❌ Comando rejeitado: {msg}")
             self._clear_route_overlay()
 
-        if self.window and hasattr(self.window.sidebar, "update_selection_panel"):
+        if self.window and hasattr(self.window.sidebar, "update_units_views"):
+            self.window.sidebar.update_units_views()
+        elif self.window and hasattr(self.window.sidebar, "update_selection_panel"):
+            # fallback antigo
             self.window.sidebar.update_selection_panel()
 
         if self.scene:
             self.scene.update()
+
+    def update_cursor_for_tile(self, tile_coords):
+        """Avalia as regras e altera o cursor do mouse de acordo com a tradição 4X."""
+        if not self.scene:
+            return
+
+        # Cursor padrão
+        default_cursor = Qt.ArrowCursor
+
+        if not self.game or not self.selection.has_selection or not tile_coords:
+            self.scene.setCursor(default_cursor)
+            return
+
+        stack = self.game.stacks.get_stack(self.selection.selected_stack_uid)
+        if not stack or stack.is_empty():
+            self.scene.setCursor(default_cursor)
+            return
+
+        # Verifica se há pelo menos uma unidade militar na stack
+        is_military = any(not get_unit_stats(u.unit_key).is_non_combat for u in stack.units)
+
+        # ── 1. Verificação de Terreno Intransponível (Bioma) ──
+        allowed_biomes = allowed_biomes_for_stack(self.game.graph, stack, self.game.stacks)
+        biome = self.game.graph.nodes.get(tile_coords, {}).get("bioma", "")
+
+        if biome not in allowed_biomes:
+            # Tradição: Cursor bloqueado se a unidade não pode pisar na terra/água
+            self.scene.setCursor(Qt.ForbiddenCursor)
+            return
+
+        # ── 2. Verificação de Diplomacia (Província e Stacks no tile) ──
+        owner_id = stack.owner_id
+        target_civ_ids = set()
+
+        # Checa dono da província no tile
+        province = self.game.get_province(tile_coords)
+        if province and province.owner:
+            target_civ_ids.add(province.owner.id)
+
+        # Checa donos das stacks no tile
+        for s in self.game.stacks.stacks_in_tile(tile_coords):
+            if not s.is_empty():
+                target_civ_ids.add(s.owner_id)
+
+        target_civ_ids.discard(owner_id)  # Remove a própria civilização da análise
+
+        if not target_civ_ids:
+            # Tile totalmente vazio e sem dono
+            self.scene.setCursor(Qt.PointingHandCursor)  # Movimento
+            return
+
+        has_enemy = False
+        has_neutral = False
+
+        for cid in target_civ_ids:
+            rel = self.game.diplomacy.relation(owner_id, cid)
+            if rel == Relation.ENEMY:
+                has_enemy = True
+            elif rel == Relation.NEUTRAL:
+                has_neutral = True
+
+        # ── 3. Definição do Cursor Final ──
+        if has_enemy and is_military:
+            self.scene.setCursor(Qt.CrossCursor)      # Combate (Mira)
+        elif has_neutral:
+            self.scene.setCursor(Qt.ForbiddenCursor)  # Bloqueado (Proibido entrar em neutro)
+        else:
+            self.scene.setCursor(Qt.PointingHandCursor) # Movimento (Território aliado/próprio)
+
 
     # ----------------------------
     # Hover — Preview de rota
@@ -424,6 +513,9 @@ class Controller:
     def on_deselect(self):
         self.selection.clear()
         self._clear_route_overlay()
+
+        if self.scene:
+            self.scene.setCursor(Qt.ArrowCursor)
 
         if self.input_manager:
             self.input_manager.clear_hover_state()
