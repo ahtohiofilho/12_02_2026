@@ -114,26 +114,23 @@ class Controller:
     # ----------------------------
     def update_fow(self) -> None:
         """Aplica (na UI) o estado de Fog of War já calculado para a civ controlada."""
-        print("[CTRL] update_fow ENTER")
-
-        # 1) validações
-        if not self.game:
-            print("[CTRL] update_fow abort: self.game is None")
-            return
-        if not self.scene:
-            print("[CTRL] update_fow abort: self.scene is None")
-            return
-        if not getattr(self.game, "visibility", None):
-            print("[CTRL] update_fow abort: game.visibility missing")
-            return
-        if not hasattr(self.scene, "set_fow"):
-            print("[CTRL] update_fow abort: scene has no set_fow()")
+        if not self.game or not self.scene:
             return
 
-        # 2) obtém explored/visible (SEM recalcular aqui)
+        vis = getattr(self.game, "visibility", None)
+        if vis is None:
+            return
+
+        set_fow = getattr(self.scene, "set_fow", None)
+        if set_fow is None:
+            # crítico: UI sem fachada -> FoW não pode ser aplicado
+            print("⚠️ [CTRL] scene.set_fow() ausente; FoW não será aplicado.")
+            return
+
         graph = getattr(self.game, "graph", None)
         if graph is None:
-            print("[CTRL] update_fow abort: game.graph is None")
+            # crítico: jogo sem grafo (estado corrompido)
+            print("⚠️ [CTRL] game.graph ausente; FoW não será aplicado.")
             return
 
         all_tiles = set(graph.nodes)
@@ -141,17 +138,13 @@ class Controller:
         if getattr(self, "debug_fow_reveal_all", False):
             explored = all_tiles
             visible = all_tiles
-            print("[CTRL] reveal_all ON")
         else:
             civ_id = int(self.controlled_civ_id)
-            vis_state = self.game.visibility.get_state(civ_id)
-            explored = vis_state.explored
-            visible = vis_state.visible
-            print(f"[CTRL] civ_id={civ_id} explored={len(explored)} visible={len(visible)}")
+            state = vis.get_state(civ_id)
+            explored = state.explored
+            visible = state.visible
 
-        # 3) aplica via fachada (SceneWidget decide renderer/CPU filters)
-        print("[CTRL] calling scene.set_fow(...)")
-        self.scene.set_fow(explored, visible)
+        set_fow(explored, visible)
 
     # ----------------------------
     # Ciclo de vida do jogo

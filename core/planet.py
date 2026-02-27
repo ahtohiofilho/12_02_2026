@@ -125,7 +125,7 @@ class Planet:
             planet=self,
         )
 
-        self.visibility = VisibilityManager(self, debug=True)
+        self.visibility = VisibilityManager(self)
         self.visibility.update_all_civs()  # Calcula a visão inicial
         print("\nObjeto Planeta criado e pronto para uso.")
 

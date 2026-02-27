@@ -1,8 +1,12 @@
+# ui/scene.py
+
 from __future__ import annotations
 
 from typing import Optional, Sequence, Tuple
 
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6 import QtCore
+
 import OpenGL.GL as gl
 
 from core.rendering.planet_renderer import PlanetRenderer
@@ -13,22 +17,22 @@ Tile = Tuple[int, int]
 
 class SceneWidget(QOpenGLWidget):
     """
-    Cena 3D (OpenGL moderno) que renderiza:
-      - Planeta (PlanetRenderer)
-        - inclui overlay de rotas (RouteOverlayRenderer) se integrado no PlanetRenderer
-        - inclui bandeiras (CivFlag) se integrado no PlanetRenderer
+    Cena 3D (OpenGL) com PlanetRenderer.
 
-    Regra de arquitetura:
-      - Controller chama métodos de SceneWidget (fachada): set_planet_data(), set_route_path(), etc.
-      - SceneWidget encaminha para PlanetRenderer e pede update().
-      - Captura de input (mouse/teclado) é delegada inteiramente ao InputManager.
+    Regras de arquitetura:
+      - Controller chama APENAS métodos da SceneWidget (fachada): set_planet_data(), set_route_path(), set_fow().
+      - SceneWidget NÃO deve chamar OpenGL fora de initializeGL/resizeGL/paintGL (ou makeCurrent explicitamente).
+      - set_fow() não faz upload GL direto: apenas marca "dirty" e o upload ocorre no paintGL.
     """
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
+
         self.renderer = PlanetRenderer(self.controller)
+        # Compat com código antigo (se houver):
         self.planet_renderer = self.renderer
+
         self.camera: Camera | None = None
 
         self.cores_biomas = {
@@ -52,27 +56,22 @@ class SceneWidget(QOpenGLWidget):
 
         self._camera_calibrated_planet_id: str | None = None
 
-        # Se quiser MSAA:
-        # fmt.setSamples(4)
-        # self.setFormat(fmt)
+        # FoW "pending" (evita GL fora do contexto, ex.: F9 no eventFilter)
+        self._pending_fow: tuple[set[Tile], set[Tile]] | None = None
+        self._fow_dirty: bool = False
+        self._queued_initial_fow: bool = False
 
     # ----------------------------
     # Fachada para o Controller
     # ----------------------------
     def set_planet_data(self, planet_object) -> None:
-        """
-        Recebe Planet e atualiza:
-          - geometria + cores do planeta
-          - dados das bandeiras (capitais/províncias), se o renderer suportar
-          - distância inicial da câmera = 3x raio do planeta (uma vez por planeta/id)
-        """
         if not planet_object:
             return
 
         # --- Planeta (tiles) ---
         self.renderer.set_tile_data(planet_object.polygons_map, planet_object.centers_map)
 
-        tile_colors = {}
+        tile_colors: dict[Tile, tuple[int, int, int]] = {}
         for node, data in planet_object.graph.nodes(data=True):
             biome = data.get("bioma", "Ocean")
             tile_colors[node] = self.cores_biomas.get(biome, (255, 0, 255))
@@ -82,24 +81,19 @@ class SceneWidget(QOpenGLWidget):
         if hasattr(self.renderer, "set_civilization_data"):
             self.renderer.set_civilization_data(planet_object)
 
-        # ==========================================================
-        # --- Unidades Militares e Trabalhadores ---
-        # Repassa o estado atual do jogo para atualizar as posições.
-        # ==========================================================
-        if hasattr(self.renderer, "tile_units_renderer") and self.renderer.tile_units_renderer is not None:
-            # O planet_object contém a propriedade .stacks com as unidades!
-            self.renderer.tile_units_renderer.set_data(planet_object, self.renderer.centros_3d_tiles)
+        # --- Unidades (se existir) ---
+        tur = getattr(self.renderer, "tile_units_renderer", None)
+        if tur is not None:
+            tur.set_data(planet_object, self.renderer.centros_3d_tiles)
 
-        # --- Câmera: aplicar calibração UMA VEZ por planeta ---
+        # --- Câmera: calibrar uma vez por planeta/id ---
         pid = str(getattr(planet_object, "id", "") or "")
-
-        # Se não existir id, cai para "calibra sempre" (ou você pode escolher não calibrar).
         should_calibrate = (
-                self.camera is not None
-                and (
-                        (pid and pid != getattr(self, "_camera_calibrated_planet_id", None))
-                        or (not pid)
-                )
+            self.camera is not None
+            and (
+                (pid and pid != getattr(self, "_camera_calibrated_planet_id", None))
+                or (not pid)
+            )
         )
 
         if should_calibrate:
@@ -107,14 +101,13 @@ class SceneWidget(QOpenGLWidget):
             if radius > 0.0:
                 self.camera.set_distance_from_planet_radius(
                     radius,
-                    distance_factor=3.0,  # três vezes o raio
-                    min_factor=1.2,  # zoom in não atravessa o planeta
-                    max_factor=10.0,  # zoom out folgado
-                    near_factor=0.02,  # escala com o planeta
-                    far_factor=50.0,  # escala com o planeta
+                    distance_factor=3.0,
+                    min_factor=1.2,
+                    max_factor=10.0,
+                    near_factor=0.02,
+                    far_factor=50.0,
                 )
                 self.camera.set_aspect_ratio(self.width(), self.height())
-
                 if pid:
                     self._camera_calibrated_planet_id = pid
 
@@ -123,55 +116,90 @@ class SceneWidget(QOpenGLWidget):
         self.update()
 
     def set_route_path(self, path_tiles: Optional[Sequence[Tile]]) -> None:
-        """
-        Define/limpa a rota a ser renderizada no planeta.
-        - path_tiles: lista de (x,y) ou None para limpar
-        """
-        if not hasattr(self, "renderer") or self.renderer is None:
+        if not self.renderer:
             return
 
         if hasattr(self.renderer, "set_route_path"):
             self.renderer.set_route_path(path_tiles)
         else:
-            # fallback bem defensivo: se você ainda não criou set_route_path no PlanetRenderer
-            if hasattr(self.renderer, "route_renderer") and self.renderer.route_renderer is not None:
-                self.renderer.route_renderer.state.set_path(path_tiles)
+            rr = getattr(self.renderer, "route_renderer", None)
+            if rr is not None:
+                rr.state.set_path(path_tiles)
 
         self.update()
 
-    # ==========================================================
-    # COLOR PICKING - FACHADA
-    # ==========================================================
-    def get_tile_under_mouse(self, x, y):
-        """
-        Retorna as coordenadas do tile sob o pixel (x, y).
-        Precisa ativar o contexto OpenGL antes de qualquer chamada GL.
-        """
-        if not self.renderer or not self.renderer.color_picker:
-            return None
+    def update_units_data(self, planet_object) -> None:
+        if not planet_object:
+            return
 
+        tur = getattr(self.renderer, "tile_units_renderer", None)
+        if tur is not None:
+            tur.set_data(planet_object, self.renderer.centros_3d_tiles)
+
+        self.update()
+
+    # ----------------------------
+    # FoW (fachada): NÃO chama GL aqui
+    # ----------------------------
+    def set_fow(self, explored, visible) -> None:
+        """
+        Recebe explored/visible e agenda o upload para o próximo paintGL.
+        Isso evita GL_INVALID_OPERATION quando chamado de eventFilter/teclas (ex.: F9).
+        """
+        self._pending_fow = (set(explored), set(visible))
+        self._fow_dirty = True
+        self.update()  # pede repaint
+
+    def _apply_pending_fow_if_needed(self) -> None:
+        if not self._fow_dirty or self._pending_fow is None:
+            return
+        if not self.renderer or self.camera is None:
+            return
+
+        # só aplica quando os recursos GL do renderer existem
+        # (se sua init_gl cria a visibility_texture)
+        if self.renderer.needs_init():
+            return
+
+        explored, visible = self._pending_fow
+        self._fow_dirty = False
+
+        # Upload GL (agora estamos em paintGL, contexto atual é válido)
+        self.renderer.update_visibility_texture(explored, visible)
+
+        # CPU-side filters (não fazem GL; ok aqui também)
+        tur = getattr(self.renderer, "tile_units_renderer", None)
+        if tur is not None:
+            tur.visible_tiles = visible
+
+        cfr = getattr(self.renderer, "civ_flag_renderer", None)
+        if cfr is not None:
+            cfr.explored_tiles = explored
+            cfr.visible_tiles = visible
+
+    # ----------------------------
+    # Color picking (precisa makeCurrent)
+    # ----------------------------
+    def get_tile_under_mouse(self, x, y):
+        if not self.renderer or not getattr(self.renderer, "color_picker", None):
+            return None
         if not self.renderer.color_picker.initialized:
             return None
-
         if not self.camera:
             return None
 
-        # ===== CORREÇÃO: ativar contexto GL =====
         self.makeCurrent()
         try:
-            result = self.renderer.color_picker.get_tile_at_pixel(
+            return self.renderer.color_picker.get_tile_at_pixel(
                 x, y,
                 self.width(), self.height(),
                 self.camera,
             )
         except Exception as e:
             print(f"⚠️ [Scene] Erro no color picker: {e}")
-            result = None
+            return None
         finally:
             self.doneCurrent()
-        # ========================================
-
-        return result
 
     # ----------------------------
     # Ciclo de vida OpenGL (QOpenGLWidget)
@@ -180,12 +208,9 @@ class SceneWidget(QOpenGLWidget):
         gl.glClearColor(0.05, 0.05, 0.1, 1.0)
         gl.glEnable(gl.GL_DEPTH_TEST)
 
-        # Transparência (overlays como bandeiras/rota/highlight)
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
 
-        # Inicializa a câmera orbital (placeholder).
-        # A distância real será recalibrada quando set_planet_data() for chamado.
         self.camera = Camera(distance=5.0)
         self.camera.set_aspect_ratio(self.width(), self.height())
 
@@ -202,38 +227,17 @@ class SceneWidget(QOpenGLWidget):
 
         if self.renderer.needs_init():
             ok = self.renderer.init_gl()
-            if ok:
-                # Agora a visibility_texture existe; upload de FoW passa a funcionar.
-                self.controller.update_fow()
+            if ok and not getattr(self, "_queued_initial_fow", False):
+                self._queued_initial_fow = True
+                QtCore.QTimer.singleShot(0, self.controller.update_fow)
+
+        self._apply_pending_fow_if_needed()
 
         view_matrix = self.camera.get_view_matrix()
         projection_matrix = self.camera.get_projection_matrix()
 
-        # Pegar a posição da câmera para o Billboarding (Sprites 2D em 3D)
-        cam_pos = getattr(self.camera, 'position', [0.0, 0.0, 5.0])
+        cam_pos = getattr(self.camera, "position", [0.0, 0.0, 5.0])
         if callable(cam_pos):
             cam_pos = cam_pos()
 
         self.renderer.render(view_matrix, projection_matrix, cam_pos)
-
-    def update_units_data(self, planet_object) -> None:
-        """
-        Lê novamente as pilhas (stacks) do planeta e atualiza
-        os sprites 3D das unidades e trabalhadores.
-        """
-        if not planet_object:
-            return
-
-        if hasattr(self.renderer, "tile_units_renderer") and self.renderer.tile_units_renderer is not None:
-            self.renderer.tile_units_renderer.set_data(planet_object, self.renderer.centros_3d_tiles)
-
-        self.update()  # Manda a placa de vídeo desenhar o novo quadro
-
-    def set_fow(self, explored, visible):
-        self.renderer.update_visibility_texture(explored, visible)
-        if self.renderer.tile_units_renderer:
-            self.renderer.tile_units_renderer.visible_tiles = visible
-        if self.renderer.civ_flag_renderer:
-            self.renderer.civ_flag_renderer.explored_tiles = explored
-            self.renderer.civ_flag_renderer.visible_tiles = visible
-        self.update()

@@ -361,63 +361,28 @@ class PlanetRenderer:
             self.dados_atualizados = True
             return False
 
-    def update_visibility_texture(self, explored_tiles: set, visible_tiles: set):
+    def update_visibility_texture(self, explored_tiles: set, visible_tiles: set) -> None:
         """
         Atualiza a textura de FoW na GPU com os dados mais recentes.
 
         Timing-safe:
-        - Se a textura ainda não existe (init_gl não rodou), guarda em _pending_fow.
+        - Se o renderer ainda não tem mapeamento/texture (init_gl não rodou), guarda em _pending_fow.
         """
-        # ----------------------------
-        # DEBUG (adicione isto)
-        # ----------------------------
-        if not hasattr(self, "_fow_debug_calls"):
-            self._fow_debug_calls = 0
-        self._fow_debug_calls += 1
-
-        # imprime só nas primeiras chamadas
-        if self._fow_debug_calls <= 5:
-            print(
-                f"[FoW GPU] call={self._fow_debug_calls} "
-                f"explored={len(explored_tiles)} visible={len(visible_tiles)} "
-                f"has_index={bool(self.tile_coords_to_index)} "
-                f"has_tex={bool(getattr(self, 'visibility_texture', 0))}"
-            )
-
-            if self.tile_coords_to_index:
-                sample = next(iter(self.tile_coords_to_index.keys()))
-                print("[FoW GPU] sample key from tile_coords_to_index:", sample,
-                      "types:", type(sample[0]), type(sample[1]))
-
-            # tenta achar a capital da civ controlada
-            cap = None
-            try:
-                ctrl = getattr(self, "controller", None)
-                civ = getattr(ctrl, "controlled_civ", None) if ctrl else None
-                cap = getattr(civ, "capital_coords", None) if civ else None
-            except Exception:
-                cap = None
-
-            if cap is not None:
-                print("[FoW GPU] capital:", cap,
-                      "| in visible?", cap in visible_tiles,
-                      "| in explored?", cap in explored_tiles,
-                      "| in tile_coords_to_index?", cap in self.tile_coords_to_index)
-
-        # ----------------------------
-        # Timing-safe original
-        # ----------------------------
-        if not self.tile_coords_to_index:
+        # Se ainda não temos o mapeamento (coords -> índice), não dá pra montar o array
+        if not getattr(self, "tile_coords_to_index", None):
             self._pending_fow = (set(explored_tiles), set(visible_tiles))
             return
 
-        if not getattr(self, "visibility_texture", None):
+        # Se a textura ainda não existe, guarda para aplicar quando existir
+        tex = getattr(self, "visibility_texture", None)
+        if not tex:
             self._pending_fow = (set(explored_tiles), set(visible_tiles))
             return
 
         num_tiles = len(self.tile_coords_to_index)
         vis_array = np.zeros(num_tiles, dtype=np.float32)
 
+        # Preenche: 1.0 visível, 0.5 explorado, 0.0 desconhecido
         for coords, idx in self.tile_coords_to_index.items():
             if coords in visible_tiles:
                 vis_array[idx] = 1.0
@@ -425,8 +390,16 @@ class PlanetRenderer:
                 vis_array[idx] = 0.5
 
         gl.glActiveTexture(gl.GL_TEXTURE1)
-        gl.glBindTexture(gl.GL_TEXTURE_1D, self.visibility_texture)
-        gl.glTexSubImage1D(gl.GL_TEXTURE_1D, 0, 0, num_tiles, gl.GL_RED, gl.GL_FLOAT, vis_array)
+        gl.glBindTexture(gl.GL_TEXTURE_1D, tex)
+        gl.glTexSubImage1D(
+            gl.GL_TEXTURE_1D,
+            0,
+            0,
+            num_tiles,
+            gl.GL_RED,
+            gl.GL_FLOAT,
+            vis_array,
+        )
 
     def _apply_pending_fow_if_any(self) -> None:
         """
