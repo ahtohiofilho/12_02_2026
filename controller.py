@@ -13,7 +13,6 @@ from config.unit_stats import get_unit_stats
 from core.diplomacy import Relation
 from core.commands.pathfinding import allowed_biomes_for_stack
 
-
 Tile = Tuple[int, int]
 
 
@@ -24,13 +23,20 @@ class Controller:
 
     def __init__(self, app):
         self.app = app
-        self.window = None
+        self.window: MainWindow | None = None
         self.game: Planet | None = None
         self.input_manager: InputManager | None = None
         self.selection = SelectionState()
 
-        # ── Debug Mode ──
+        # ── Debug flags ──
+        # debug_mode: habilita ferramentas de debug (ex.: trocar civ com Tab)
         self.debug_mode: bool = True
+
+        # debug_fow_reveal_all: se True, ignora FoW e revela o mapa inteiro
+        # (separei do debug_mode para você poder depurar sem necessariamente revelar tudo)
+        self.debug_fow_reveal_all: bool = False
+
+        # ── Debug: Civilização controlada (apenas se debug_mode=True) ──
         self._controlled_civ_index: int = 0
 
     # ----------------------------
@@ -73,6 +79,9 @@ class Controller:
         if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
             self.window.sidebar.hide_selection_panel()
 
+        # Atualiza a visão/Fog of War para a nova civilização
+        self.update_fow()
+
         if self.scene:
             self.scene.update()
 
@@ -101,9 +110,55 @@ class Controller:
         return self.window.scene if (self.window and self.window.scene) else None
 
     # ----------------------------
+    # Fog of War (NOVO)
+    # ----------------------------
+    def update_fow(self) -> None:
+        """Aplica (na UI) o estado de Fog of War já calculado para a civ controlada."""
+        print("[CTRL] update_fow ENTER")
+
+        # 1) validações
+        if not self.game:
+            print("[CTRL] update_fow abort: self.game is None")
+            return
+        if not self.scene:
+            print("[CTRL] update_fow abort: self.scene is None")
+            return
+        if not getattr(self.game, "visibility", None):
+            print("[CTRL] update_fow abort: game.visibility missing")
+            return
+        if not hasattr(self.scene, "set_fow"):
+            print("[CTRL] update_fow abort: scene has no set_fow()")
+            return
+
+        # 2) obtém explored/visible (SEM recalcular aqui)
+        graph = getattr(self.game, "graph", None)
+        if graph is None:
+            print("[CTRL] update_fow abort: game.graph is None")
+            return
+
+        all_tiles = set(graph.nodes)
+
+        if getattr(self, "debug_fow_reveal_all", False):
+            explored = all_tiles
+            visible = all_tiles
+            print("[CTRL] reveal_all ON")
+        else:
+            civ_id = int(self.controlled_civ_id)
+            vis_state = self.game.visibility.get_state(civ_id)
+            explored = vis_state.explored
+            visible = vis_state.visible
+            print(f"[CTRL] civ_id={civ_id} explored={len(explored)} visible={len(visible)}")
+
+        # 3) aplica via fachada (SceneWidget decide renderer/CPU filters)
+        print("[CTRL] calling scene.set_fow(...)")
+        self.scene.set_fow(explored, visible)
+
+    # ----------------------------
     # Ciclo de vida do jogo
     # ----------------------------
-    def action_create_planet(self):
+    # controller.py (trecho do método action_create_planet)
+
+    def action_create_planet(self) -> None:
         print("Controller: Recebido pedido para criar um novo planeta.")
 
         self.game = Planet(fator=5)
@@ -125,15 +180,29 @@ class Controller:
         if self.window:
             self.window.sidebar.on_planet_loaded(True)
 
+        # Estado inicial do controller
         self._controlled_civ_index = 0
         if self.debug_mode:
             civ = self.controlled_civ
             if civ:
                 print(f"🔧 [DEBUG MODE ATIVO] Controlando: {civ.name} (id={civ.id})")
-                print(f"   Tab = próxima civ | Shift+Tab = civ anterior")
+                print("   Tab = próxima civ | Shift+Tab = civ anterior")
 
         self._clear_route_overlay()
         self._on_go_to_capital()
+
+        # (1) Recalcula a visão inicial (regras estão centralizadas no VisibilityManager)
+        vis = getattr(self.game, "visibility", None)
+        if vis is None:
+            print("⚠️ Controller: game.visibility is None (skip initial FoW compute)")
+        else:
+            vis.update_all_civs()  # <- sem vision_range aqui
+
+        # (2) Aplica na UI (SceneWidget.set_fow faz o trabalho)
+        self.update_fow()
+
+        if self.scene:
+            self.scene.update()
 
     # ----------------------------
     # Rotas (overlay)
@@ -198,7 +267,7 @@ class Controller:
     # ----------------------------
     # Turno
     # ----------------------------
-    def _on_turn_advanced(self):
+    def _on_turn_advanced(self) -> None:
         if not self.game:
             print("⚠️ Nenhum planeta ativo.")
             return
@@ -223,10 +292,9 @@ class Controller:
 
         self.game.command_manager.advance_persistent_commands()
 
+        # overlays/seleção
         if self.selection.has_selection:
-            cmd = self.game.command_manager.get_command(
-                self.selection.selected_stack_uid
-            )
+            cmd = self.game.command_manager.get_command(self.selection.selected_stack_uid)
             if cmd and cmd.remaining_path:
                 self._set_route_overlay(cmd.remaining_path)
             else:
@@ -238,12 +306,23 @@ class Controller:
         if self.input_manager:
             self.input_manager.clear_hover_state()
 
+        # (1) Recalcula visão (regras centralizadas no VisibilityManager)
+        vis = getattr(self.game, "visibility", None)
+        if vis is None:
+            print("⚠️ game.visibility is None (skip FoW recompute)")
+        else:
+            vis.update_all_civs()
+
+        # (2) Aplica Fog of War na UI (sem recalcular aqui)
+        self.update_fow()
+
         self._update_ui_post_turn()
 
         if not self.selection.has_selection:
             if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
                 self.window.sidebar.hide_selection_panel()
 
+        # Atualiza a cena/unidades
         if self.scene:
             if hasattr(self.scene, "update_units_data"):
                 self.scene.update_units_data(self.game)
@@ -303,7 +382,6 @@ class Controller:
             else:
                 self._clear_route_overlay()
 
-            # ✅ Se o tile tem província, abre o painel da província
             province = self.game.get_province(tile_coords)
             if province and self.window:
                 self.window.sidebar._on_province_selected(province)
@@ -322,7 +400,6 @@ class Controller:
             if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
                 self.window.sidebar.hide_selection_panel()
 
-            # ✅ Se clicou numa província (mesmo sem stack própria), abre o painel da província
             province = self.game.get_province(tile_coords)
             if province and self.window:
                 self.window.sidebar._on_province_selected(province)
@@ -345,7 +422,6 @@ class Controller:
         if not civ:
             return
 
-        # ✅ MUDANÇA: passa planet e owner_id para o command manager
         ok, msg, cmd = self.game.command_manager.issue_move_command(
             stack_uid=self.selection.selected_stack_uid,
             destination=tile_coords,
@@ -367,7 +443,6 @@ class Controller:
         if self.window and hasattr(self.window.sidebar, "update_units_views"):
             self.window.sidebar.update_units_views()
         elif self.window and hasattr(self.window.sidebar, "update_selection_panel"):
-            # fallback antigo
             self.window.sidebar.update_selection_panel()
 
         if self.scene:
@@ -378,7 +453,6 @@ class Controller:
         if not self.scene:
             return
 
-        # Cursor padrão
         default_cursor = Qt.ArrowCursor
 
         if not self.game or not self.selection.has_selection or not tile_coords:
@@ -390,36 +464,38 @@ class Controller:
             self.scene.setCursor(default_cursor)
             return
 
-        # Verifica se há pelo menos uma unidade militar na stack
         is_military = any(not get_unit_stats(u.unit_key).is_non_combat for u in stack.units)
 
-        # ── 1. Verificação de Terreno Intransponível (Bioma) ──
-        allowed_biomes = allowed_biomes_for_stack(self.game.graph, stack, self.game.stacks)
-        biome = self.game.graph.nodes.get(tile_coords, {}).get("bioma", "")
-
-        if biome not in allowed_biomes:
-            # Tradição: Cursor bloqueado se a unidade não pode pisar na terra/água
-            self.scene.setCursor(Qt.ForbiddenCursor)
-            return
-
-        # ── 2. Verificação de Diplomacia (Província e Stacks no tile) ──
+        # ── 1. Verificação de Diplomacia e Cidades (Portos) ──
         owner_id = stack.owner_id
         target_civ_ids = set()
+        is_friendly_city = False
 
-        # Checa dono da província no tile
         province = self.game.get_province(tile_coords)
         if province and province.owner:
             target_civ_ids.add(province.owner.id)
+            # Permite navios em províncias aliadas/próprias (cidades funcionam como porto)
+            if province.owner.id == owner_id or self.game.diplomacy.relation(owner_id,
+                                                                             province.owner.id) == Relation.ALLY:
+                is_friendly_city = True
 
-        # Checa donos das stacks no tile
         for s in self.game.stacks.stacks_in_tile(tile_coords):
             if not s.is_empty():
                 target_civ_ids.add(s.owner_id)
 
-        target_civ_ids.discard(owner_id)  # Remove a própria civilização da análise
+        target_civ_ids.discard(owner_id)
 
+        # ── 2. Verificação de Terreno Intransponível (Bioma) ──
+        allowed_biomes = allowed_biomes_for_stack(self.game.graph, stack, self.game.stacks)
+        biome = self.game.graph.nodes.get(tile_coords, {}).get("bioma", "")
+
+        # Exceção: Navios podem entrar em biomas proibidos SE for uma cidade amigável!
+        if not is_friendly_city and biome not in allowed_biomes:
+            self.scene.setCursor(Qt.ForbiddenCursor)
+            return
+
+        # ── 3. Definição do Cursor Final ──
         if not target_civ_ids:
-            # Tile totalmente vazio e sem dono
             self.scene.setCursor(Qt.PointingHandCursor)  # Movimento
             return
 
@@ -433,14 +509,12 @@ class Controller:
             elif rel == Relation.NEUTRAL:
                 has_neutral = True
 
-        # ── 3. Definição do Cursor Final ──
         if has_enemy and is_military:
-            self.scene.setCursor(Qt.CrossCursor)      # Combate (Mira)
+            self.scene.setCursor(Qt.CrossCursor)  # Combate (Mira)
         elif has_neutral:
             self.scene.setCursor(Qt.ForbiddenCursor)  # Bloqueado (Proibido entrar em neutro)
         else:
-            self.scene.setCursor(Qt.PointingHandCursor) # Movimento (Território aliado/próprio)
-
+            self.scene.setCursor(Qt.PointingHandCursor)  # Movimento/Atracar
 
     # ----------------------------
     # Hover — Preview de rota
@@ -467,7 +541,6 @@ class Controller:
         budget = movement_budget_for_stack(stack)
         unit_keys = [u.unit_key for u in stack.units]
 
-        # ✅ MUDANÇA: passa planet e owner_id para filtrar território
         path = find_path(
             self.game.graph,
             stack.tile,

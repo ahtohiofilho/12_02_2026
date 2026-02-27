@@ -108,13 +108,21 @@ class CivFlag:
                 self.flag_textures[civ_name] = self._load_flag_texture(civ_name, planet_id)
 
             # --- escolha do que renderizar ---
+            visible_tiles = getattr(self, 'visible_tiles', None)
+            explored_tiles = getattr(self, 'explored_tiles', None)
+
             # 1) capital
             cap = civ.capital_coords
             center = centers_3d_tiles.get(cap)
+
+            # Bandeiras aparecem se estiverem no Fog (explored) ou Visible
             if center is not None:
-                self.instances.append(
-                    FlagInstance(tile_coords=cap, center=center, civ_name=civ_name, border_rgb=border_rgb, is_capital=True)
-                )
+                is_known = (explored_tiles is None) or (cap in explored_tiles) or (cap in visible_tiles)
+                if is_known:
+                    self.instances.append(
+                        FlagInstance(tile_coords=cap, center=center, civ_name=civ_name, border_rgb=border_rgb,
+                                     is_capital=True)
+                    )
 
             # 2) (opcional) outras províncias
             # se quiser só capital, comente este bloco

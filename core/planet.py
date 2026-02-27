@@ -20,6 +20,7 @@ from .civilization import Civilization, Province
 from .generation._geography import definir_geografia, seed_from_planet_id
 from .generation._polygons import dicionario_poligonos
 from core.commands.manager import CommandManager
+from core.visibility import VisibilityManager
 
 
 class Planet:
@@ -123,6 +124,9 @@ class Planet:
             turn_engine=self.turn_engine,
             planet=self,
         )
+
+        self.visibility = VisibilityManager(self, debug=True)
+        self.visibility.update_all_civs()  # Calcula a visão inicial
         print("\nObjeto Planeta criado e pronto para uso.")
 
     def process_production(self) -> list[dict]:

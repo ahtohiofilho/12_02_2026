@@ -4,11 +4,17 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Agora o cálculo da rota depende de manter o Shift pressionado.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="O cursor se ajusta ao tile sobre o qual se faz o hover.">
+      <change afterPath="$PROJECT_DIR$/config/visibility_rules.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/visibility.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/civ_flag.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/civ_flag.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/input/input_manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/input/input_manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -311,7 +317,23 @@
       <option name="project" value="LOCAL" />
       <updated>1772135724484</updated>
     </task>
-    <option name="localTasksCounter" value="30" />
+    <task id="LOCAL-00030" summary="O cursor se ajusta ao tile sobre o qual se faz o hover.">
+      <option name="closed" value="true" />
+      <created>1772140614104</created>
+      <option name="number" value="00030" />
+      <option name="presentableId" value="LOCAL-00030" />
+      <option name="project" value="LOCAL" />
+      <updated>1772140614104</updated>
+    </task>
+    <task id="LOCAL-00031" summary="O cursor se ajusta ao tile sobre o qual se faz o hover.">
+      <option name="closed" value="true" />
+      <created>1772140669979</created>
+      <option name="number" value="00031" />
+      <option name="presentableId" value="LOCAL-00031" />
+      <option name="project" value="LOCAL" />
+      <updated>1772140669979</updated>
+    </task>
+    <option name="localTasksCounter" value="32" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -326,7 +348,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Implementei uma base para o sistema de turnos." />
     <MESSAGE value="As bandeiras estão sendo renderizadas na cena 3D." />
     <MESSAGE value="Implementação da economia e de sistema de reprodutibilidade de planeta idêntico com base em seed." />
     <MESSAGE value="Implementei a interface de gerenciamento da civilização e corrigi a matriz de projeção do planeta." />
@@ -351,6 +372,7 @@
     <MESSAGE value="Implementei o bloqueio de províncias neutras e inimigas no cálculo da rota de movimento de unidades." />
     <MESSAGE value="Modifiquei o comportamento ao se clicar em stacks dentro da província." />
     <MESSAGE value="Agora o cálculo da rota depende de manter o Shift pressionado." />
-    <option name="LAST_COMMIT_MESSAGE" value="Agora o cálculo da rota depende de manter o Shift pressionado." />
+    <MESSAGE value="O cursor se ajusta ao tile sobre o qual se faz o hover." />
+    <option name="LAST_COMMIT_MESSAGE" value="O cursor se ajusta ao tile sobre o qual se faz o hover." />
   </component>
 </project>

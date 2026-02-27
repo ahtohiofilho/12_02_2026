@@ -28,6 +28,7 @@ class SceneWidget(QOpenGLWidget):
         super().__init__(parent)
         self.controller = controller
         self.renderer = PlanetRenderer(self.controller)
+        self.planet_renderer = self.renderer
         self.camera: Camera | None = None
 
         self.cores_biomas = {
@@ -200,7 +201,10 @@ class SceneWidget(QOpenGLWidget):
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
         if self.renderer.needs_init():
-            self.renderer.init_gl()
+            ok = self.renderer.init_gl()
+            if ok:
+                # Agora a visibility_texture existe; upload de FoW passa a funcionar.
+                self.controller.update_fow()
 
         view_matrix = self.camera.get_view_matrix()
         projection_matrix = self.camera.get_projection_matrix()
@@ -224,3 +228,12 @@ class SceneWidget(QOpenGLWidget):
             self.renderer.tile_units_renderer.set_data(planet_object, self.renderer.centros_3d_tiles)
 
         self.update()  # Manda a placa de vídeo desenhar o novo quadro
+
+    def set_fow(self, explored, visible):
+        self.renderer.update_visibility_texture(explored, visible)
+        if self.renderer.tile_units_renderer:
+            self.renderer.tile_units_renderer.visible_tiles = visible
+        if self.renderer.civ_flag_renderer:
+            self.renderer.civ_flag_renderer.explored_tiles = explored
+            self.renderer.civ_flag_renderer.visible_tiles = visible
+        self.update()

@@ -79,14 +79,21 @@ class TileUnitsRenderer:
         print("\n--- [UnitsRenderer] Atualizando dados das unidades ---")
         self.instances.clear()
 
-        if not planet or not hasattr(planet, 'stacks'):
+        if not planet or not hasattr(planet, "stacks"):
             print("❌ Planeta é None ou não possui o atributo 'stacks'!")
             return
+
+        # Pega a lista de tiles visíveis (definida no Controller)
+        visible_tiles = getattr(self, "visible_tiles", None)
 
         tiles_com_unidades = list(planet.stacks.stack_uids_by_tile.keys())
         print(f"🔍 Tiles que possuem stacks (pilhas): {tiles_com_unidades}")
 
         for tile, stack_uids in planet.stacks.stack_uids_by_tile.items():
+            # ✅ FoW: se o tile não estiver visível, não desenha NADA dele
+            if visible_tiles is not None and tile not in visible_tiles:
+                continue
+
             if not stack_uids:
                 continue
 
@@ -94,18 +101,16 @@ class TileUnitsRenderer:
             if center_3d is None:
                 continue
 
-            stack_uid = list(stack_uids)[0]
+            stack_uid = next(iter(stack_uids))  # melhor que list(...)[0]
             stack = planet.stacks.get_stack(stack_uid)
-
             if not stack or stack.is_empty():
                 continue
 
-            # Processar TODAS as unidades da pilha para desenhá-las na tela
             total_units = len(stack.units)
             center_vec = glm.vec3(center_3d[0], center_3d[1], center_3d[2])
 
             for i, unit in enumerate(stack.units):
-                unit_key = getattr(unit, 'unit_key', 'DESCONHECIDO')
+                unit_key = getattr(unit, "unit_key", "DESCONHECIDO")
                 print(f"✅ Encontrada unidade '{unit_key}' no tile {tile}")
 
                 stats = get_unit_stats(unit_key)
@@ -113,11 +118,8 @@ class TileUnitsRenderer:
                     print(f"❌ Erro: Status não encontrados para a unidade '{unit_key}'.")
                     continue
 
-                sprite_key = getattr(stats, 'sprite_key', unit_key)
+                sprite_key = getattr(stats, "sprite_key", unit_key)
 
-                # =======================================================
-                # CÁLCULO DE POSIÇÃO ESFÉRICA (Espalha as unidades pelo Hex)
-                # =======================================================
                 if total_units > 1:
                     normal = glm.normalize(center_vec)
 
@@ -128,28 +130,26 @@ class TileUnitsRenderer:
                     right = glm.normalize(glm.cross(north, normal))
                     forward = glm.normalize(glm.cross(normal, right))
 
-                    # Raio de espalhamento (Distância do centro do hexágono)
                     spread_radius = 0.3
                     angle = (i / total_units) * math.pi * 2.0
 
-                    # Desliza a unidade pelos eixos da superfície
                     offset_pos = center_vec + (right * math.cos(angle) * spread_radius) + (
-                                forward * math.sin(angle) * spread_radius)
+                            forward * math.sin(angle) * spread_radius
+                    )
 
-                    # Puxa a unidade de volta para grudar na curvatura da esfera
                     radius = glm.length(center_vec)
                     offset_pos = glm.normalize(offset_pos) * radius
-
                     final_center = (offset_pos.x, offset_pos.y, offset_pos.z)
                 else:
                     final_center = (center_vec.x, center_vec.y, center_vec.z)
-                # =======================================================
 
-                self.instances.append({
-                    "center": final_center,
-                    "sprite_key": sprite_key,
-                    "is_civilian": getattr(stats, 'is_non_combat', False)
-                })
+                self.instances.append(
+                    {
+                        "center": final_center,
+                        "sprite_key": sprite_key,
+                        "is_civilian": getattr(stats, "is_non_combat", False),
+                    }
+                )
 
         print(f"--- [UnitsRenderer] Total de instâncias prontas para desenhar: {len(self.instances)} ---")
 

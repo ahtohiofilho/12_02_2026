@@ -108,6 +108,14 @@ class InputManager(QObject):
                     self._last_hover_tile = None
                 return False  # Retorna False para permitir que outros atalhos com Shift funcionem
 
+            # F9 alterna modo "fog of war" e modo "ver tudo"
+            if key == Qt.Key_F9 and event.type() == QEvent.KeyPress and not key_event.isAutoRepeat():
+                self.controller.debug_fow_reveal_all = not self.controller.debug_fow_reveal_all
+                self.controller.update_fow()
+                if self.controller.scene:
+                    self.controller.scene.update()
+                return True
+
             # Camera keys (estado contínuo)
             if key not in self.CAMERA_KEYS:
                 return False
