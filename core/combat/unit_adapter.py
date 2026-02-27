@@ -1,3 +1,4 @@
+# core/combat/unit_adapter.py
 from __future__ import annotations
 
 from config.unit_stats import get_unit_stats
@@ -7,7 +8,7 @@ from .models import CombatUnit
 def combat_unit_from_key(unit_key: str) -> CombatUnit:
     """
     Converte um unit_key do config (UNIT_STATS) para um CombatUnit (core).
-    Centraliza aqui a “tradução” de nomes: eficacia -> efficacy.
+    Centraliza aqui a "tradução" de nomes: eficacia -> efficacy.
     """
     stats = get_unit_stats(unit_key)
     if stats is None:
@@ -24,6 +25,6 @@ def combat_unit_from_key(unit_key: str) -> CombatUnit:
             "movement": stats.movement,
             "sprite_key": stats.sprite_key,
             "can_transport": stats.can_transport,
-            "long_range": stats.long_range,
+            "vision_range": stats.vision_range,
         },
     )

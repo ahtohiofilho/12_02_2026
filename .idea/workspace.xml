@@ -4,15 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Corrigi um bug relacionado à alternância entre visão geral e visão com FoW.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/gameplay.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/gameplay.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/production/queue.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/production/queue.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/workforce/facade.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/workforce/facade.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/province/workforce_tab.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/province/workforce_tab.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/selection_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/selection_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/unit_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/unit_stats.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/combat/unit_adapter.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/unit_adapter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/visibility.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/visibility.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -347,7 +343,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772153318801</updated>
     </task>
-    <option name="localTasksCounter" value="34" />
+    <task id="LOCAL-00034" summary="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional.">
+      <option name="closed" value="true" />
+      <created>1772162251126</created>
+      <option name="number" value="00034" />
+      <option name="presentableId" value="LOCAL-00034" />
+      <option name="project" value="LOCAL" />
+      <updated>1772162251126</updated>
+    </task>
+    <option name="localTasksCounter" value="35" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -362,7 +366,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Implementei a interface de gerenciamento da civilização e corrigi a matriz de projeção do planeta." />
     <MESSAGE value="Fiz alguns melhoramentos na ui." />
     <MESSAGE value="Comecei a refatorar a ui relacionada à província." />
     <MESSAGE value="Implementei a aba Workforce." />
@@ -387,6 +390,7 @@
     <MESSAGE value="O cursor se ajusta ao tile sobre o qual se faz o hover." />
     <MESSAGE value="Implementei o Fog of War. Falta só limitar a renderização das bandeiras." />
     <MESSAGE value="Corrigi um bug relacionado à alternância entre visão geral e visão com FoW." />
-    <option name="LAST_COMMIT_MESSAGE" value="Corrigi um bug relacionado à alternância entre visão geral e visão com FoW." />
+    <MESSAGE value="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional." />
+    <option name="LAST_COMMIT_MESSAGE" value="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional." />
   </component>
 </project>
