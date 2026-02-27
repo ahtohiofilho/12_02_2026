@@ -353,6 +353,14 @@ class PlanetRenderer:
             # ✅ Aplicar FoW pendente (timing-safe)
             self._apply_pending_fow_if_any()
 
+            # ✅ Força um repaint imediato após FoW/texturas estarem prontas
+            # (evita o primeiro frame "preto demais" até o usuário mexer na câmera)
+            try:
+                if self.controller and getattr(self.controller, "scene", None):
+                    self.controller.scene.update()
+            except Exception:
+                pass
+
             return True
 
         except Exception as e:
@@ -368,6 +376,21 @@ class PlanetRenderer:
         Timing-safe:
         - Se o renderer ainda não tem mapeamento/texture (init_gl não rodou), guarda em _pending_fow.
         """
+        explored_tiles = set(explored_tiles or ())
+        visible_tiles = set(visible_tiles or ())
+
+        # ✅ Repasse do FoW para o renderer de bandeiras (para filtrar instâncias)
+        if getattr(self, "civ_flag_renderer", None) is not None:
+            try:
+                self.civ_flag_renderer.set_fow(explored_tiles, visible_tiles)
+
+                # ✅ IMPORTANTE: as instâncias de bandeiras são "cacheadas".
+                # Recria instâncias agora para aplicar o filtro de FoW.
+                if hasattr(self.civ_flag_renderer, "refresh_instances"):
+                    self.civ_flag_renderer.refresh_instances()
+            except Exception:
+                pass
+
         # Se ainda não temos o mapeamento (coords -> índice), não dá pra montar o array
         if not getattr(self, "tile_coords_to_index", None):
             self._pending_fow = (set(explored_tiles), set(visible_tiles))

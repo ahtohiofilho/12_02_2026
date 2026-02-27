@@ -4,12 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Corrigi a visão das unidades, sendo agora 0 ou 1.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Outros bugs da visibilidade foram corrigidos.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/gameplay.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/gameplay.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/visibility_rules.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/visibility_rules.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/visibility.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/visibility.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/civ_flag.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/civ_flag.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -361,7 +359,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772166808671</updated>
     </task>
-    <option name="localTasksCounter" value="36" />
+    <task id="LOCAL-00036" summary="Outros bugs da visibilidade foram corrigidos.">
+      <option name="closed" value="true" />
+      <created>1772169279926</created>
+      <option name="number" value="00036" />
+      <option name="presentableId" value="LOCAL-00036" />
+      <option name="project" value="LOCAL" />
+      <updated>1772169279926</updated>
+    </task>
+    <option name="localTasksCounter" value="37" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -376,7 +382,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Comecei a refatorar a ui relacionada à província." />
     <MESSAGE value="Implementei a aba Workforce." />
     <MESSAGE value="Fiz uma refatoração em vários pontos da lógica." />
     <MESSAGE value="Implementei parcialmente a aba Trade." />
@@ -401,6 +406,7 @@
     <MESSAGE value="Corrigi um bug relacionado à alternância entre visão geral e visão com FoW." />
     <MESSAGE value="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional." />
     <MESSAGE value="Corrigi a visão das unidades, sendo agora 0 ou 1." />
-    <option name="LAST_COMMIT_MESSAGE" value="Corrigi a visão das unidades, sendo agora 0 ou 1." />
+    <MESSAGE value="Outros bugs da visibilidade foram corrigidos." />
+    <option name="LAST_COMMIT_MESSAGE" value="Outros bugs da visibilidade foram corrigidos." />
   </component>
 </project>

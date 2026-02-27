@@ -210,7 +210,7 @@ class SceneWidget(QOpenGLWidget):
     # Ciclo de vida OpenGL (QOpenGLWidget)
     # ----------------------------
     def initializeGL(self) -> None:
-        gl.glClearColor(0.05, 0.05, 0.1, 1.0)
+        gl.glClearColor(0.0, 0.0, 0.0, 1.0)
         gl.glEnable(gl.GL_DEPTH_TEST)
 
         gl.glEnable(gl.GL_BLEND)
@@ -220,6 +220,8 @@ class SceneWidget(QOpenGLWidget):
         self.camera.set_aspect_ratio(self.width(), self.height())
 
     def resizeGL(self, w: int, h: int) -> None:
+        w = max(1, w)
+        h = max(1, h)
         gl.glViewport(0, 0, w, h)
         if self.camera:
             self.camera.set_aspect_ratio(w, h)
@@ -227,6 +229,9 @@ class SceneWidget(QOpenGLWidget):
     def paintGL(self) -> None:
         if not self.camera:
             return
+
+        gl.glClearColor(0.0, 0.0, 0.0, 1.0)
+        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 

@@ -34,6 +34,14 @@ class CivFlag:
 
         self.uniform_locations: dict[str, int] = {}
 
+        # --- FoW state (recebido do PlanetRenderer) ---
+        self.explored_tiles: set[tuple[int, int]] | None = None
+        self.visible_tiles: set[tuple[int, int]] | None = None
+
+        # --- cache para refresh de instâncias sem recarregar tudo ---
+        self._planet = None
+        self._centers_3d_tiles = None
+
         self.vertex_shader_source = """
         #version 330 core
         layout(location = 0) in vec3 aPos;
@@ -76,13 +84,53 @@ class CivFlag:
         }
         """
 
+    def refresh_instances(self) -> None:
+        """
+        Recria self.instances aplicando o FoW atual.
+        Não recarrega texturas; só refaz a lista de instâncias.
+        """
+        if self._planet is None or self._centers_3d_tiles is None:
+            return
+        # Reusa o mesmo pipeline de construção (que já filtra por FoW)
+        self.set_civilization_data(self._planet, self._centers_3d_tiles)
+
+
+    # ---------- FoW API ----------
+    def set_fow(self, explored_tiles: set[tuple[int, int]] | None, visible_tiles: set[tuple[int, int]] | None) -> None:
+        """
+        Define o estado de Fog of War para filtrar renderização.
+        Regra desejada: bandeiras só aparecem em tiles explorados (ou visíveis).
+        """
+        self.explored_tiles = set(explored_tiles) if explored_tiles is not None else None
+        self.visible_tiles = set(visible_tiles) if visible_tiles is not None else None
+
+    def _is_tile_known(self, tile: tuple[int, int]) -> bool:
+        explored = self.explored_tiles
+        visible = self.visible_tiles
+
+        if explored is None and visible is None:
+            # Estrito: se não recebemos FoW ainda, não renderiza nada
+            return False
+
+        if explored is not None and tile in explored:
+            return True
+        if visible is not None and tile in visible:
+            return True
+
+        return False
+
+
     # ---------- Data ----------
     def set_civilization_data(self, planet, centers_3d_tiles: dict[tuple[int, int], glm.vec3]) -> None:
         """
         Cria instâncias de bandeira a partir das civilizações do planeta.
-        - Você pode decidir: capital only, ou todas províncias.
-        Aqui vou colocar capital + (opcional) outras províncias.
+
+        REGRA FoW:
+        - NÃO renderiza bandeiras em tiles não explorados.
         """
+        # cache para permitir refresh quando FoW mudar
+        self._planet = planet
+        self._centers_3d_tiles = centers_3d_tiles
         self.instances.clear()
         if planet is None:
             return
@@ -107,33 +155,45 @@ class CivFlag:
             if civ_name not in self.flag_textures:
                 self.flag_textures[civ_name] = self._load_flag_texture(civ_name, planet_id)
 
-            # --- escolha do que renderizar ---
-            visible_tiles = getattr(self, 'visible_tiles', None)
-            explored_tiles = getattr(self, 'explored_tiles', None)
-
             # 1) capital
             cap = civ.capital_coords
-            center = centers_3d_tiles.get(cap)
-
-            # Bandeiras aparecem se estiverem no Fog (explored) ou Visible
-            if center is not None:
-                is_known = (explored_tiles is None) or (cap in explored_tiles) or (cap in visible_tiles)
-                if is_known:
+            if not self._is_tile_known(cap):
+                # capital em tile não explorado -> não renderiza
+                pass
+            else:
+                center = centers_3d_tiles.get(cap)
+                if center is not None:
                     self.instances.append(
-                        FlagInstance(tile_coords=cap, center=center, civ_name=civ_name, border_rgb=border_rgb,
-                                     is_capital=True)
+                        FlagInstance(
+                            tile_coords=cap,
+                            center=center,
+                            civ_name=civ_name,
+                            border_rgb=border_rgb,
+                            is_capital=True,
+                        )
                     )
 
-            # 2) (opcional) outras províncias
-            # se quiser só capital, comente este bloco
+            # 2) (opcional) outras províncias (também filtradas por FoW)
             for prov in civ.provinces:
                 if prov.is_capital:
                     continue
-                c = centers_3d_tiles.get(prov.tile_coords)
+
+                t = prov.tile_coords
+                if not self._is_tile_known(t):
+                    continue
+
+                c = centers_3d_tiles.get(t)
                 if c is None:
                     continue
+
                 self.instances.append(
-                    FlagInstance(tile_coords=prov.tile_coords, center=c, civ_name=civ_name, border_rgb=border_rgb, is_capital=False)
+                    FlagInstance(
+                        tile_coords=t,
+                        center=c,
+                        civ_name=civ_name,
+                        border_rgb=border_rgb,
+                        is_capital=False,
+                    )
                 )
 
     # ---------- GL init ----------
@@ -171,7 +231,7 @@ class CivFlag:
             "uBorderWidth": gl.glGetUniformLocation(self.shader_program, "uBorderWidth"),
         }
 
-        # Geometria do quad (pos + uv) — UV com U invertido (igual seu fix antigo)
+        # Geometria do quad (pos + uv)
         aspect = 144.0 / 89.0
         half_w = 0.5 * aspect
         half_h = 0.5
@@ -211,7 +271,6 @@ class CivFlag:
         if not self.instances:
             return
 
-        # Transparência (bandeira PNG)
         gl.glEnable(gl.GL_BLEND)
         gl.glBlendFunc(gl.GL_SRC_ALPHA, gl.GL_ONE_MINUS_SRC_ALPHA)
         gl.glDisable(gl.GL_CULL_FACE)
@@ -243,14 +302,12 @@ class CivFlag:
 
             gl.glUniform3f(self.uniform_locations["uBorderColor"], *inst.border_rgb)
 
-            # Seu render aplica flip no X (mundo espelhado). Mantemos igual ao CivIcon antigo:
             x, y, z = inst.center.x, inst.center.y, inst.center.z
             position = glm.vec3(x, y, z)
 
             normal = glm.normalize(position)
             position = position + normal * offset
 
-            # Orientar topo da bandeira para o norte “na superfície”
             north_pole = glm.vec3(0, 1, 0)
             north_on_surface = north_pole - glm.dot(north_pole, normal) * normal
             if glm.length(north_on_surface) < 0.001:
