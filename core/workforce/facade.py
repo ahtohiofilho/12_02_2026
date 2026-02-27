@@ -360,22 +360,12 @@ class ProvinceWorkforceFacade:
 
     @staticmethod
     def found_province(
-        unit_uid: str,
-        planet: "Planet",
+            unit_uid: str,
+            planet: "Planet",
     ) -> bool:
         """
         Funda uma nova província no tile do worker móvel.
-
-        Fluxo:
-          1. Valida via can_found_province()
-          2. Descobre o owner (via stack.owner_id → civilização)
-          3. Cria Province no tile
-          4. Remove a unidade do mapa
-          5. Limpa rastreamento de mobile_worker_uids
-          6. Inicializa economia da nova província (1 worker)
-          7. Invalida cache de economia
-
-        Retorna True se bem-sucedido.
+        (Agora com nome procedural via services, com fallback.)
         """
         from core.civilization import Province
         from core.economy.production import init_province_economy
@@ -396,17 +386,36 @@ class ProvinceWorkforceFacade:
             print(f"⚠️ [Workforce] Civilização {owner_id} não encontrada.")
             return False
 
-        # Cria a Province
-        node_data  = planet.graph.nodes.get(tile, {})
-        biome      = node_data.get("bioma", "Meadow")
-        plate      = node_data.get("placa", "Unknown")
-        fertility  = node_data.get("fertilidade", 3.0)
+        # Dados do tile
+        node_data = planet.graph.nodes.get(tile, {})
+        biome = node_data.get("bioma", "Meadow")
+        plate = node_data.get("placa", "Unknown")
+        fertility = node_data.get("fertilidade", 3.0)
 
+        # --- NOVO: nome procedural (plugável) ---
+        prov_name = f"Colônia de {civ.name}"
+        try:
+            from services.province_naming_service import generate_unique_province_name
+
+            prov_name = generate_unique_province_name(
+                planet=planet,
+                civ=civ,
+                tile=tile,
+                is_capital=False,
+                sanitizer="western",
+            )
+        except ImportError:
+            # service não disponível -> fallback
+            pass
+        except Exception as e:
+            print(f"⚠️ [Naming] Falha ao gerar nome de província fundada (civ={civ.id}, tile={tile}): {e}")
+
+        # Cria a Province
         new_province = Province(
             owner=civ,
             tile_coords=tile,
             is_capital=False,
-            name=f"Colônia de {civ.name}",
+            name=str(prov_name),
         )
         civ.provinces.append(new_province)
         planet.provinces_by_tile[tile] = new_province
@@ -435,7 +444,7 @@ class ProvinceWorkforceFacade:
 
         print(
             f"🏛️ [Workforce] Nova província fundada por {civ.name} em {tile} "
-            f"(bioma={biome}, fertilidade={fertility:.2f})"
+            f"(bioma={biome}, fertilidade={fertility:.2f}, nome='{prov_name}')"
         )
         return True
 

@@ -1,4 +1,6 @@
 # core/civilization.py
+from __future__ import annotations
+
 import random
 import uuid
 from dataclasses import dataclass, field
@@ -10,7 +12,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class Province:
-    owner: 'Civilization'
+    owner: "Civilization"
     tile_coords: tuple
     is_capital: bool = False
     name: str = "Província"
@@ -22,14 +24,18 @@ class Province:
 
 @dataclass
 class Civilization:
-    planeta: 'Planet'
+    planeta: "Planet"
     id: int
     name: str
     color: tuple[int, int, int]
     capital_coords: tuple
 
-    # NOVO: diferencia civ “player” (participa da guerra inicial / pode ter UI/IA etc.)
+    # Diferencia civ “player” (participa da guerra inicial / pode ter UI/IA etc.)
     is_player: bool = True
+
+    # Cultura usada para nomear províncias (24 culturas)
+    # (Planet._create_initial_civilizations deve preencher isso de forma determinística)
+    culture: str = "English"
 
     provinces: list[Province] = field(default_factory=list)
 
@@ -49,11 +55,28 @@ class Civilization:
             print(f"⚠️ AVISO: Tentando criar capital em {self.capital_coords}, que já possui uma província.")
             return
 
+        # Fallback (jogo funciona sem naming)
+        prov_name = f"Capital de {self.name}"
+
+        try:
+            from services.province_naming_service import generate_unique_province_name
+            prov_name = generate_unique_province_name(
+                planet=self.planeta,
+                civ=self,
+                tile=self.capital_coords,
+                is_capital=True,
+                sanitizer="western",
+            )
+        except ImportError as e:
+            print(f"⚠️ [Naming] ImportError: {e}")
+        except Exception as e:
+            print(f"⚠️ [Naming] Erro ao gerar nome: {e}")
+
         capital_province = Province(
             owner=self,
             tile_coords=self.capital_coords,
             is_capital=True,
-            name=f"Capital de {self.name}"
+            name=str(prov_name),
         )
         self.provinces.append(capital_province)
         self.planeta.provinces_by_tile[self.capital_coords] = capital_province
@@ -62,7 +85,7 @@ class Civilization:
         try:
             from services.flag_service import bandeira
 
-            if not hasattr(self.planeta, 'id') or not self.planeta.id:
+            if not hasattr(self.planeta, "id") or not self.planeta.id:
                 self.planeta.id = str(uuid.uuid4())
 
             # RNG local: mesmo planeta + mesmo civ id → mesma bandeira sempre
@@ -73,18 +96,20 @@ class Civilization:
                 self.name,
                 flag_type,
                 criar_arquivo=True,
-                id_mundo=self.planeta.id
+                id_mundo=self.planeta.id,
             )
 
             self.flag_colors = colors
             self.flag_type = flag_type
             self.flag_generated = True
+
         except ImportError:
             rng = random.Random(hash((self.planeta.id, self.id)))
             self.flag_colors = self.color
             self.flag_type = rng.randint(0, 82)
             self.flag_generated = False
             print("⚠️ Módulo de bandeiras não disponível. Usando fallback")
+
         except Exception as e:
             print(f"❌ Erro ao gerar bandeira: {e}")
             rng = random.Random(hash((self.planeta.id, self.id)))

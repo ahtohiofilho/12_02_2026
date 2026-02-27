@@ -285,8 +285,8 @@ class CivFlag:
         gl.glUniform1i(self.uniform_locations["uTexture"], 0)
         gl.glUniform1f(self.uniform_locations["uBorderWidth"], 0.02)
 
-        base_scale = 0.08
-        capital_scale = 0.10
+        base_scale = 0.16
+        capital_scale = 0.2
         offset = 0.02
 
         current_tex = None

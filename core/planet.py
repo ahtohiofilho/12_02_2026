@@ -1,12 +1,13 @@
 # core/planet.py
-
 from __future__ import annotations
+
 import random
 import uuid
 import networkx as nx
 from typing import Optional
 
 from config import CIV_CORES
+from config.civilization import CULTURAS  # <-- NOVO (ordem base das 24 culturas)
 from core.diplomacy import DiplomacyMatrix, Relation
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
 from core.economy.market import MarketSystem
@@ -30,17 +31,21 @@ class Planet:
     """
 
     def __init__(
-            self,
-            fator: int,
-            starting_biome: str = "Meadow",
-            *,
-            spawn_initial_units: bool = False,
+        self,
+        fator: int,
+        starting_biome: str = "Meadow",
+        *,
+        spawn_initial_units: bool = False,
     ):
         print(f"Instanciando novo objeto Planeta com n={fator}...")
         self.id = str(uuid.uuid4())
         self.fator = int(fator)
         self.starting_biome = starting_biome
         self.geography_seed: int = seed_from_planet_id(self.id)
+
+        # NOVO: nomes de província usados no planeta (para unicidade)
+        # (o service de naming também consegue criar isso via setattr, mas é melhor explícito)
+        self.used_province_names: set[str] = set()
 
         # --- Etapa 1: Geração Geométrica ---
         print(" -> Etapa 1: Gerando geometria dos polígonos...")
@@ -83,7 +88,7 @@ class Planet:
         print(" -> Etapa 3: Preparando para criar civilizações...")
 
         # O mapa DEVE existir ANTES da criação das civilizações, pois elas o consultam.
-        self.provinces_by_tile: dict[tuple[int, int], 'Province'] = {}
+        self.provinces_by_tile: dict[tuple[int, int], "Province"] = {}
         print("[Planet] Mapa de províncias por tile inicializado (vazio).")
 
         self.civilizations: list[Civilization] = []
@@ -251,14 +256,30 @@ class Planet:
           2) neutras (capitals_neutrals) -> is_player=False
 
         Mantém id=0 como "player humano" por convenção (primeiro player).
+
+        NOVO (cultura):
+          - Existem 24 culturas em config.civilization.CULTURAS
+          - Cada civ recebe 1 cultura sem repetir até completar as 24
+          - Se houver >24 civs, recomeça a rodada (idx % 24)
+          - Determinístico por planeta: embaralha a lista de culturas com seed do planeta
         """
         if not self.capitals_players and not self.capitals_neutrals:
             print("⚠️  AVISO: Nenhuma capital disponível para criar civilizações.")
             return
 
         rng = random.Random(self.geography_seed + 1)
+
         civ_names = list(CIV_CORES.keys())
         rng.shuffle(civ_names)
+
+        # NOVO: culturas determinísticas por planeta
+        cultures = list(CULTURAS) if CULTURAS else ["English"]
+        rng.shuffle(cultures)
+
+        def culture_for_index(i: int) -> str:
+            if not cultures:
+                return "English"
+            return cultures[i % len(cultures)]
 
         # players primeiro
         idx = 0
@@ -269,6 +290,7 @@ class Planet:
 
             civ_name = civ_names[idx]
             civ_color = CIV_CORES[civ_name]
+
             self.civilizations.append(
                 Civilization(
                     planeta=self,
@@ -277,6 +299,7 @@ class Planet:
                     color=civ_color,
                     capital_coords=capital_coords,
                     is_player=True,
+                    culture=culture_for_index(idx),  # <-- NOVO
                 )
             )
             idx += 1
@@ -289,6 +312,7 @@ class Planet:
 
             civ_name = civ_names[idx]
             civ_color = CIV_CORES[civ_name]
+
             self.civilizations.append(
                 Civilization(
                     planeta=self,
@@ -297,6 +321,7 @@ class Planet:
                     color=civ_color,
                     capital_coords=capital_coords,
                     is_player=False,
+                    culture=culture_for_index(idx),  # <-- NOVO
                 )
             )
             idx += 1
@@ -327,5 +352,5 @@ class Planet:
     def get_polygon_data(self, polygon_2d_coords):
         return self.graph.nodes.get(polygon_2d_coords)
 
-    def get_province(self, tile: tuple[int, int]) -> Optional['Province']:
+    def get_province(self, tile: tuple[int, int]) -> Optional["Province"]:
         return self.provinces_by_tile.get(tile)

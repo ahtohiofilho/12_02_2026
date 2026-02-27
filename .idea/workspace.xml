@@ -4,11 +4,71 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Outros bugs da visibilidade foram corrigidos.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="As bandeiras não aparecem mais na parte inexplorada.">
+      <change afterPath="$PROJECT_DIR$/services/naming/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/api.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/ar.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/bn.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/de.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/en.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/es.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/fa.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/fr.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/ha.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/hi.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/id.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/it.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/ja.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/ko.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/min.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/mr.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/pt.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/ru.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/sw.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/te.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/tr.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/vi.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/wu.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/yue.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/datasets/zh.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/_sinitic_romanized.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/ar.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/bn.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/de.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/en.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/es.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/fa.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/fr.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/ha.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/hi.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/id.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/it.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/ja.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/ko.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/min.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/mr.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/pt.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/ru.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/sw.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/te.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/tr.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/vi.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/wu.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/yue.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/languages/zh.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/registry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/types.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/unique.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/utils/rng.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/utils/sanitize.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/naming/utils/text.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/services/province_naming_service.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/civilization.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/civilization.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/rendering/civ_flag.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/civ_flag.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/workforce/facade.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/workforce/facade.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -367,7 +427,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772169279926</updated>
     </task>
-    <option name="localTasksCounter" value="37" />
+    <task id="LOCAL-00037" summary="As bandeiras não aparecem mais na parte inexplorada.">
+      <option name="closed" value="true" />
+      <created>1772176211540</created>
+      <option name="number" value="00037" />
+      <option name="presentableId" value="LOCAL-00037" />
+      <option name="project" value="LOCAL" />
+      <updated>1772176211540</updated>
+    </task>
+    <option name="localTasksCounter" value="38" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -382,7 +450,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Implementei a aba Workforce." />
     <MESSAGE value="Fiz uma refatoração em vários pontos da lógica." />
     <MESSAGE value="Implementei parcialmente a aba Trade." />
     <MESSAGE value="Incluí as civilizações neutras." />
@@ -407,6 +474,7 @@
     <MESSAGE value="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional." />
     <MESSAGE value="Corrigi a visão das unidades, sendo agora 0 ou 1." />
     <MESSAGE value="Outros bugs da visibilidade foram corrigidos." />
-    <option name="LAST_COMMIT_MESSAGE" value="Outros bugs da visibilidade foram corrigidos." />
+    <MESSAGE value="As bandeiras não aparecem mais na parte inexplorada." />
+    <option name="LAST_COMMIT_MESSAGE" value="As bandeiras não aparecem mais na parte inexplorada." />
   </component>
 </project>
