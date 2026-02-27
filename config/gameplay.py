@@ -31,3 +31,5 @@ ALLOWED_BIOMES_PER_CATEGORY = {
         'Coast', 'Sea', 'Ocean', 'Ice'
     ],
 }
+
+MIN_WORKERS_FIXOS: int = 1

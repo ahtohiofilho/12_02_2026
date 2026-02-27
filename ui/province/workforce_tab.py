@@ -1,9 +1,10 @@
+# ui/province/workforce_tab.py
 from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QSlider,
     QProgressBar, QSizePolicy, QGridLayout, QPushButton,
-    QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView,
+    QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView, QFrame,
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QColor
@@ -50,7 +51,9 @@ class WorkforceTabWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._init_ui()
 
-    # ---------------- Public API ----------------
+    # ------------------------------------------------------------------ #
+    #  Public API                                                          #
+    # ------------------------------------------------------------------ #
 
     def set_facade(self, facade) -> None:
         self.facade = facade
@@ -84,6 +87,19 @@ class WorkforceTabWidget(QWidget):
         self.label_worker_cost.setText(f"Next worker: {info.next_cost:.1f}G (paid over turns)")
         self.btn_buy_worker.setEnabled(True)
 
+        # ── Botão Detach: habilitado apenas se pode destacar ──
+        can_detach = self.facade.can_detach_worker()
+        self.btn_detach_worker.setEnabled(can_detach)
+        if not can_detach:
+            self.label_detach_status.setText("⚠ Minimum 1 worker must remain.")
+            self.label_detach_status.setStyleSheet(
+                "color: #888; font-size: 11px; font-style: italic;"
+            )
+        else:
+            # Só limpa a mensagem de aviso; preserva mensagens de feedback (✅/❌)
+            if self.label_detach_status.text().startswith("⚠"):
+                self.label_detach_status.setText("")
+
         # ---- Allocation UI (consistent with core ints) ----
         has_food = bool(self._has_food)
         has_ore = bool(self._has_ore)
@@ -91,11 +107,9 @@ class WorkforceTabWidget(QWidget):
 
         if has_both:
             pref_pct = int(self._allocation_preference_pct)
-
             self.slider_allocation.blockSignals(True)
             self.slider_allocation.setValue(pref_pct)
             self.slider_allocation.blockSignals(False)
-
             self.progress_food.setValue(pref_pct)
             self.progress_ore.setValue(100 - pref_pct)
         elif has_food:
@@ -105,7 +119,7 @@ class WorkforceTabWidget(QWidget):
             self.progress_food.setValue(0)
             self.progress_ore.setValue(100)
 
-        # Sempre use os valores reais do core (evita divergência com split_workers)
+        # Sempre usa valores reais do core (evita divergência com split_workers)
         self.label_farmers.setText(f"{food_name}: {info.workers_food}")
         self.label_miners.setText(f"{ore_name}: {info.workers_ore}")
 
@@ -121,35 +135,28 @@ class WorkforceTabWidget(QWidget):
         self.label_ore_revenue.setText("—")
         self.label_total_revenue.setText(f"${total_rev:.2f}")
 
-        # =========================================================
-        # ---- Correção do status visual de compra (hire status) ----
-        # =========================================================
-        from core.production.queue import QueueItemType
-
-        # Pega todos os itens da fila
+        # ---- Hire status: limpa quando fila esvaziar ----
         queue_items = self.facade.queue_items()
-
-        # Verifica se ainda há algum worker aguardando na fila
-        has_worker_in_queue = any(it.item_type == QueueItemType.WORKER for it in queue_items)
-
+        has_worker_in_queue = any(
+            it.item_type == QueueItemType.WORKER for it in queue_items
+        )
         if not has_worker_in_queue:
-            # A mágica: quando a fila esvaziar no avanço do turno, ele apaga a mensagem de sucesso!
             self.label_hire_status.setText("")
 
         # ---- Queue ----
         self._update_queue_display()
 
-    # ---------------- Biome adaptation ----------------
+    # ------------------------------------------------------------------ #
+    #  Biome adaptation                                                    #
+    # ------------------------------------------------------------------ #
 
     def _update_biome_adaptation(self) -> None:
         """Mostra/esconde seções conforme o tipo de produção do tile."""
         has_any = self._has_food or self._has_ore
         has_both = self._has_food and self._has_ore
 
-        # Mensagem de bioma sem produção
         self.no_production_label.setVisible(not has_any)
 
-        # Mensagem de produção única
         self.single_production_label.setVisible(has_any and not has_both)
         if self._has_food and not self._has_ore:
             food_name = "Food"
@@ -159,7 +166,9 @@ class WorkforceTabWidget(QWidget):
                 f"🌾 All workers are assigned to {food_name} production.\n"
                 f"No ore resources available in this biome."
             )
-            self.single_production_label.setStyleSheet("color: #4CAF50; font-style: italic; padding: 10px;")
+            self.single_production_label.setStyleSheet(
+                "color: #4CAF50; font-style: italic; padding: 10px;"
+            )
         elif self._has_ore and not self._has_food:
             ore_name = "Ore"
             if self.facade:
@@ -168,20 +177,19 @@ class WorkforceTabWidget(QWidget):
                 f"⛏️ All workers are assigned to {ore_name} production.\n"
                 f"No food resources available in this biome."
             )
-            self.single_production_label.setStyleSheet("color: #FF9800; font-style: italic; padding: 10px;")
+            self.single_production_label.setStyleSheet(
+                "color: #FF9800; font-style: italic; padding: 10px;"
+            )
 
-        # Slider e controles de alocação
         self.slider_allocation.setVisible(has_both)
         self.label_food_icon.setVisible(has_both)
         self.label_ore_icon.setVisible(has_both)
 
-        # Barras de progresso: visíveis se há qualquer produção
         self.progress_food.setVisible(has_any)
         self.progress_ore.setVisible(has_any)
         self.label_farmers.setVisible(has_any)
         self.label_miners.setVisible(has_any)
 
-        # Seções inteiras
         self.group_hiring.setVisible(has_any)
         self.group_queue.setVisible(has_any)
         self.group_allocation.setVisible(has_any)
@@ -190,6 +198,8 @@ class WorkforceTabWidget(QWidget):
 
     def _set_empty_state(self) -> None:
         self.btn_buy_worker.setEnabled(False)
+        self.btn_detach_worker.setEnabled(False)
+        self.label_detach_status.setText("")
         self.queue_list.clear()
         self.label_queue_count.setText("Empty queue")
         self.label_queue_cost.setText("Remaining: 0.0G")
@@ -205,7 +215,9 @@ class WorkforceTabWidget(QWidget):
         self.label_ore_revenue.setText("—")
         self.label_total_revenue.setText("$0.00")
 
-    # ---------------- UI building ----------------
+    # ------------------------------------------------------------------ #
+    #  UI building                                                         #
+    # ------------------------------------------------------------------ #
 
     def _init_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -222,18 +234,20 @@ class WorkforceTabWidget(QWidget):
         scroll_layout.setContentsMargins(0, 0, 0, 0)
         scroll_layout.setSpacing(10)
 
-        # Label: sem produção (visível apenas para biomas estéreis)
+        # Bioma sem produção
         self.no_production_label = QLabel(
             "⛰️ This biome has no economic production.\n"
             "It can still be used for strategic or settlement purposes."
         )
         self.no_production_label.setAlignment(Qt.AlignCenter)
-        self.no_production_label.setStyleSheet("color: #888; font-style: italic; padding: 20px;")
+        self.no_production_label.setStyleSheet(
+            "color: #888; font-style: italic; padding: 20px;"
+        )
         self.no_production_label.setWordWrap(True)
         self.no_production_label.setVisible(False)
         scroll_layout.addWidget(self.no_production_label)
 
-        # Label: produção única (visível quando só food ou só ore)
+        # Produção única (só food ou só ore)
         self.single_production_label = QLabel("")
         self.single_production_label.setAlignment(Qt.AlignCenter)
         self.single_production_label.setWordWrap(True)
@@ -257,7 +271,6 @@ class WorkforceTabWidget(QWidget):
         scroll_layout.addWidget(self.group_revenue)
 
         scroll_layout.addStretch()
-
         scroll.setWidget(scroll_content)
         layout.addWidget(scroll)
 
@@ -280,24 +293,24 @@ class WorkforceTabWidget(QWidget):
         """
 
     def _create_hiring_section(self) -> QGroupBox:
-        group = QGroupBox("👷 Buy Workers")
+        group = QGroupBox("👷 Workers")
         group.setStyleSheet(self._group_style("#64B5F6"))
         layout = QVBoxLayout(group)
         layout.setContentsMargins(10, 15, 10, 10)
         layout.setSpacing(8)
 
+        # ── Linha: workers atuais + custo do próximo ──
         info_layout = QHBoxLayout()
         self.label_workers_current = QLabel("Current: —")
         self.label_workers_current.setStyleSheet("color: #ddd; font-weight: bold;")
         info_layout.addWidget(self.label_workers_current)
-
         info_layout.addStretch()
-
         self.label_worker_cost = QLabel("Next worker: —")
         self.label_worker_cost.setStyleSheet("color: #FFD700;")
         info_layout.addWidget(self.label_worker_cost)
         layout.addLayout(info_layout)
 
+        # ── Linha: status + botão comprar ──
         buy_layout = QHBoxLayout()
         self.label_hire_status = QLabel("")
         self.label_hire_status.setStyleSheet("color: #888; font-size: 11px;")
@@ -315,6 +328,43 @@ class WorkforceTabWidget(QWidget):
         """)
         buy_layout.addWidget(self.btn_buy_worker)
         layout.addLayout(buy_layout)
+
+        # ── Separador visual ──
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("background-color: #3a3a3a; margin: 4px 0;")
+        layout.addWidget(sep)
+
+        # ── Linha: descrição + botão destacar ──
+        detach_layout = QHBoxLayout()
+
+        detach_info = QLabel("Detach a worker → mobile unit on the map")
+        detach_info.setStyleSheet("color: #aaa; font-size: 11px; font-style: italic;")
+        detach_info.setWordWrap(True)
+        detach_layout.addWidget(detach_info, 1)
+
+        self.btn_detach_worker = QPushButton("⚒ Detach")
+        self.btn_detach_worker.setFixedWidth(100)
+        self.btn_detach_worker.setToolTip(
+            "Remove 1 worker from this province and\n"
+            "create a mobile Worker unit on the map.\n"
+            "Minimum 1 worker must remain."
+        )
+        self.btn_detach_worker.clicked.connect(self._on_detach_worker)
+        self.btn_detach_worker.setStyleSheet("""
+            QPushButton { background-color: #4E342E; border: none; border-radius: 4px;
+                         padding: 8px 12px; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #6D4C41; }
+            QPushButton:pressed { background-color: #3E2723; }
+            QPushButton:disabled { background-color: #333; color: #666; }
+        """)
+        detach_layout.addWidget(self.btn_detach_worker)
+        layout.addLayout(detach_layout)
+
+        # ── Status do destacamento ──
+        self.label_detach_status = QLabel("")
+        self.label_detach_status.setStyleSheet("color: #888; font-size: 11px;")
+        layout.addWidget(self.label_detach_status)
 
         return group
 
@@ -406,7 +456,10 @@ class WorkforceTabWidget(QWidget):
         self.slider_allocation.setStyleSheet("""
             QSlider::groove:horizontal {
                 height: 6px;
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4CAF50, stop:1 #FF9800);
+                background: qlineargradient(
+                    x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4CAF50, stop:1 #FF9800
+                );
                 border-radius: 3px;
             }
             QSlider::handle:horizontal {
@@ -442,7 +495,8 @@ class WorkforceTabWidget(QWidget):
         self.progress_food.setFormat("%p%")
         self.progress_food.setFixedHeight(16)
         self.progress_food.setStyleSheet("""
-            QProgressBar { border: 1px solid #3a3a3a; border-radius: 3px; text-align: center; font-size: 10px; }
+            QProgressBar { border: 1px solid #3a3a3a; border-radius: 3px;
+                           text-align: center; font-size: 10px; }
             QProgressBar::chunk { background-color: #4CAF50; }
         """)
         bars_layout.addWidget(self.progress_food)
@@ -451,7 +505,8 @@ class WorkforceTabWidget(QWidget):
         self.progress_ore.setFormat("%p%")
         self.progress_ore.setFixedHeight(16)
         self.progress_ore.setStyleSheet("""
-            QProgressBar { border: 1px solid #3a3a3a; border-radius: 3px; text-align: center; font-size: 10px; }
+            QProgressBar { border: 1px solid #3a3a3a; border-radius: 3px;
+                           text-align: center; font-size: 10px; }
             QProgressBar::chunk { background-color: #FF9800; }
         """)
         bars_layout.addWidget(self.progress_ore)
@@ -468,7 +523,6 @@ class WorkforceTabWidget(QWidget):
 
         self.label_food_name = QLabel("🌾 Food:")
         layout.addWidget(self.label_food_name, 0, 0)
-
         self.label_food_output = QLabel("0.0")
         self.label_food_output.setStyleSheet("color: #4CAF50; font-weight: bold;")
         self.label_food_output.setAlignment(Qt.AlignRight)
@@ -476,7 +530,6 @@ class WorkforceTabWidget(QWidget):
 
         self.label_ore_name = QLabel("⛏️ Ore:")
         layout.addWidget(self.label_ore_name, 1, 0)
-
         self.label_ore_output = QLabel("0.0")
         self.label_ore_output.setStyleSheet("color: #FF9800; font-weight: bold;")
         self.label_ore_output.setAlignment(Qt.AlignRight)
@@ -523,7 +576,9 @@ class WorkforceTabWidget(QWidget):
 
         return group
 
-    # ---------------- Queue helpers ----------------
+    # ------------------------------------------------------------------ #
+    #  Queue helpers                                                       #
+    # ------------------------------------------------------------------ #
 
     def _update_queue_display(self) -> None:
         self.queue_list.clear()
@@ -532,15 +587,23 @@ class WorkforceTabWidget(QWidget):
 
         items = self.facade.queue_items()
 
-        # NOVO: preferir remaining/paid (se você implementou na facade)
-        total_cost = float(self.facade.queue_total_cost() or 0.0)  # compat
-        total_paid = float(getattr(self.facade, "queue_total_paid", lambda: 0.0)() or 0.0)
-        total_remaining = float(getattr(self.facade, "queue_total_remaining", lambda: total_cost - total_paid)() or 0.0)
+        total_cost = float(self.facade.queue_total_cost() or 0.0)
+        total_paid = float(
+            getattr(self.facade, "queue_total_paid", lambda: 0.0)() or 0.0
+        )
+        total_remaining = float(
+            getattr(
+                self.facade,
+                "queue_total_remaining",
+                lambda: total_cost - total_paid,
+            )() or 0.0
+        )
 
         if items:
             self.label_queue_count.setText(f"{len(items)} item(s) queued")
-            # Troque "Total" por "Remaining" (mais correto no gradual)
-            self.label_queue_cost.setText(f"Remaining: {total_remaining:.1f}G  (Paid: {total_paid:.1f}G)")
+            self.label_queue_cost.setText(
+                f"Remaining: {total_remaining:.1f}G  (Paid: {total_paid:.1f}G)"
+            )
         else:
             self.label_queue_count.setText("Empty queue")
             self.label_queue_cost.setText("Remaining: 0.0G")
@@ -558,12 +621,11 @@ class WorkforceTabWidget(QWidget):
 
             cost = float(getattr(it, "cost", 0.0) or 0.0)
             paid = float(getattr(it, "paid", 0.0) or 0.0)
-            remaining = float(getattr(it, "remaining", max(0.0, cost - paid)) or 0.0)
-            progress = 0.0
-            if cost > 1e-9:
-                progress = min(1.0, max(0.0, paid / cost))
+            remaining = float(
+                getattr(it, "remaining", max(0.0, cost - paid)) or 0.0
+            )
+            progress = min(1.0, max(0.0, paid / cost)) if cost > 1e-9 else 0.0
 
-            # Texto atualizado para refletir pagamento gradual
             text = (
                 f"{icon} {name} — "
                 f"{paid:.1f}/{cost:.1f}G ({int(progress * 100)}%) "
@@ -571,7 +633,7 @@ class WorkforceTabWidget(QWidget):
             )
 
             li = QListWidgetItem(text)
-            li.setData(Qt.UserRole, it.uid)  # continua usando uid (bom!)
+            li.setData(Qt.UserRole, it.uid)
             li.setForeground(QColor(color))
             self.queue_list.addItem(li)
 
@@ -580,7 +642,9 @@ class WorkforceTabWidget(QWidget):
         self.btn_remove_selected.setEnabled(False)
         self.label_queue_status.setText("")
 
-    # ---------------- Callbacks ----------------
+    # ------------------------------------------------------------------ #
+    #  Callbacks                                                           #
+    # ------------------------------------------------------------------ #
 
     def _on_buy_worker(self) -> None:
         if not self.facade:
@@ -595,8 +659,24 @@ class WorkforceTabWidget(QWidget):
             self.label_hire_status.setText("❌ Failed")
             self.label_hire_status.setStyleSheet("color: #F44336; font-size: 11px;")
 
+    def _on_detach_worker(self) -> None:
+        if not self.facade or not self.controller:
+            return
+
+        ok = self.controller.action_detach_worker(self.facade.province)
+
+        if ok:
+            self.label_detach_status.setText("📋 Detach scheduled for next turn.")  # ← mudou
+            self.label_detach_status.setStyleSheet("color: #64B5F6; font-size: 11px;")
+            self.update_display()  # atualiza fila (vai aparecer na queue_list)
+        else:
+            self.label_detach_status.setText("❌ Cannot detach (minimum reached)")
+            self.label_detach_status.setStyleSheet("color: #F44336; font-size: 11px;")
+
     def _on_queue_selection_changed(self) -> None:
-        self.btn_remove_selected.setEnabled(len(self.queue_list.selectedItems()) > 0)
+        self.btn_remove_selected.setEnabled(
+            len(self.queue_list.selectedItems()) > 0
+        )
 
     def _on_remove_selected(self) -> None:
         if not self.facade:
@@ -616,14 +696,13 @@ class WorkforceTabWidget(QWidget):
         self.update_display()
         self.queue_changed.emit()
 
-    # slider
+    # ── Slider ──
     def _on_slider_changed(self, value: int) -> None:
         if not self.facade:
             return
         self._allocation_preference_pct = int(value)
         self._pending_value = int(value)
         self._update_timer.start()
-
         self.progress_food.setValue(int(value))
         self.progress_ore.setValue(100 - int(value))
 
@@ -637,6 +716,5 @@ class WorkforceTabWidget(QWidget):
         ore_pct = 1.0 - food_pct
 
         self.facade.set_food_pref(food_pct)
-
         self.update_display()
         self.allocation_changed.emit(food_pct, ore_pct)

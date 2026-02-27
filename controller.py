@@ -346,6 +346,108 @@ class Controller:
         self.set_hover_trade_route(None)
 
     # ----------------------------
+    # Ações de Worker
+    # ----------------------------
+    def action_detach_worker(self, province) -> bool:
+        """
+        Agenda o destacamento de 1 worker fixo para o próximo turno.
+        (antes executava imediatamente; agora enfileira)
+        """
+        if not self.game:
+            return False
+
+        from core.workforce.facade import ProvinceWorkforceFacade
+
+        facade = ProvinceWorkforceFacade(planet=self.game, province=province)
+        ok = facade.enqueue_detach_worker()  # ← mudança: era detach_worker()
+
+        if ok:
+            # Apenas atualiza a UI da fila — sem FoW/unidades ainda
+            if self.window and hasattr(self.window.sidebar, "province_detail"):
+                sb = self.window.sidebar
+                try:
+                    if hasattr(sb.province_detail, "update_display"):
+                        sb.province_detail.update_display()
+                except Exception:
+                    pass
+
+        return ok
+
+    def action_reattach_worker(self, unit_uid: str, target_province) -> bool:
+        """
+        Reintegra um worker móvel em qualquer província.
+        Chamado quando o jogador seleciona um worker e clica em 'Reintegrar'.
+        """
+        if not self.game:
+            return False
+
+        from core.workforce.facade import ProvinceWorkforceFacade
+
+        ok = ProvinceWorkforceFacade.reattach_worker(
+            unit_uid=unit_uid,
+            target_province=target_province,
+            planet=self.game,
+        )
+
+        if ok:
+            # Worker sumiu do mapa → limpa seleção se era ele
+            if self.selection.has_selection:
+                stack = self.game.stacks.get_stack(self.selection.selected_stack_uid)
+                if stack is None or stack.is_empty():
+                    self.selection.clear()
+                    self._clear_route_overlay()
+                    if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
+                        self.window.sidebar.hide_selection_panel()
+
+            self.game.visibility.update_all_civs()
+            self.update_fow()
+
+            if self.scene:
+                if hasattr(self.scene, "update_units_data"):
+                    self.scene.update_units_data(self.game)
+                else:
+                    self.scene.update()
+
+        return ok
+
+    def action_found_province(self, unit_uid: str) -> bool:
+        """
+        Funda uma nova província no tile onde o worker móvel está.
+        Chamado quando o jogador seleciona um worker e clica em 'Fundar Província'.
+        """
+        if not self.game:
+            return False
+
+        from core.workforce.facade import ProvinceWorkforceFacade
+
+        ok = ProvinceWorkforceFacade.found_province(
+            unit_uid=unit_uid,
+            planet=self.game,
+        )
+
+        if ok:
+            # Worker sumiu do mapa → limpa seleção
+            self.selection.clear()
+            self._clear_route_overlay()
+
+            if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
+                self.window.sidebar.hide_selection_panel()
+
+            self.game.visibility.update_all_civs()
+            self.update_fow()
+
+            # Atualiza painel de província se estiver aberto
+            self._update_ui_post_turn()
+
+            if self.scene:
+                if hasattr(self.scene, "update_units_data"):
+                    self.scene.update_units_data(self.game)
+                else:
+                    self.scene.update()
+
+        return ok
+
+    # ----------------------------
     # Seleção de Stack
     # ----------------------------
     def on_tile_left_clicked(self, tile_coords):

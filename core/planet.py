@@ -142,9 +142,11 @@ class Planet:
                 return
 
             owner_id = province.owner.id
+
+            # Unidades militares vão para stack mista (não-worker)
             target_stack = None
             for s in self.stacks.stacks_in_tile(tile):
-                if s.owner_id == owner_id:
+                if s.owner_id == owner_id and not all(u.unit_key == "worker" for u in s.units):
                     target_stack = s
                     break
 
@@ -163,6 +165,35 @@ class Planet:
             if not prov_queue.items or not econ_state or not workforce_state:
                 continue
 
+            # ── DETACH_WORKER: resolve antes do processamento monetário ──
+            from core.production.queue import QueueItemType
+            from core.workforce.facade import ProvinceWorkforceFacade
+
+            i = 0
+            while i < len(prov_queue.items):
+                item = prov_queue.items[i]
+                if item.item_type != QueueItemType.DETACH_WORKER:
+                    i += 1
+                    continue
+
+                # Remove da fila independentemente do resultado
+                prov_queue.items.pop(i)
+
+                province = self.get_province(tile)
+                if province is None:
+                    print(f"⚠️ [process_production] DETACH_WORKER descartado em {tile}: província não existe.")
+                    continue
+
+                facade = ProvinceWorkforceFacade(planet=self, province=province)
+                ok = facade.detach_worker()
+
+                if ok:
+                    reports.append({"tile": tile, "produced": "worker_detached"})
+                    print(f"✅ [process_production] Worker destacado em {tile}.")
+                else:
+                    print(f"⚠️ [process_production] DETACH_WORKER cancelado em {tile}: workers insuficientes.")
+                # não incrementa i: o pop já avançou
+
             def remove_first_item_from_queue():
                 prov_queue.items.pop(0)
 
@@ -177,27 +208,16 @@ class Planet:
             if (report.get("completed_items", 0) or 0) > 0 or (report.get("paid_total", 0.0) or 0.0) > 0:
                 reports.append(report)
 
-
         # ============================================================
         # 2) RECEITA DO TURNO (gera a grana que será gasta no PRÓXIMO turno)
         # ============================================================
         try:
-            # calcula comércio/receitas do turno
             resultado = self.economy.calcular_equilibrio(forcar_recalculo=True)
-
-            # aplica (commit) no treasury de cada ProvinceEconomyState
-            # (requer: core.economy.production.apply_province_income)
             income_reports = apply_province_income(self.econ_repo, resultado)
-
-            # opcional: anexar ao retorno (para debug/UI)
-            # reports.extend({"income": r} for r in income_reports)
         except Exception as e:
-            # não quebra o turno se economia falhar; só não deposita receita
             print(f"⚠️ [Planet.process_production] Falha ao aplicar receita do turno: {e}")
 
-
         return reports
-
 
     @property
     def player_civ(self) -> Optional[Civilization]:

@@ -1,5 +1,4 @@
 # core/production/queue.py
-
 from __future__ import annotations
 
 from enum import Enum, auto
@@ -11,7 +10,7 @@ from typing import Any
 class QueueItemType(Enum):
     WORKER = auto()
     MILITARY = auto()
-    # BUILDING = auto()
+    DETACH_WORKER = auto()   # ← novo: destacar worker fixo → unidade móvel
 
 
 @dataclass(slots=True)
@@ -19,9 +18,9 @@ class QueueItem:
     """Represents an item in a province production queue."""
     uid: str = field(default_factory=lambda: str(uuid4()))
     item_type: QueueItemType = QueueItemType.WORKER
-    data: Any | None = None  # e.g. unit_key (str) for MILITARY
-    cost: float = 0.0        # total cost
-    paid: float = 0.0        # already paid (gradual)
+    data: Any | None = None  # unit_key (str) para MILITARY; None para WORKER/DETACH_WORKER
+    cost: float = 0.0
+    paid: float = 0.0
 
     @property
     def remaining(self) -> float:

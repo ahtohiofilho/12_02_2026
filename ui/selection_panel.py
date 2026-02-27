@@ -28,12 +28,17 @@ from ui.province.military_ui import (
 
 class SelectionPanel(QWidget):
     """
-    Painel de seleção/comando de stack militar.
+    Painel de seleção/comando de stack.
+
+    Cobre dois modos:
+      - Stack militar/mista: mostra stats, comando pendente, hints de teclado.
+      - Stack de workers:    mostra adicionalmente o grupo "Worker Actions"
+                             com botões Fundar Província e Reintegrar Worker.
 
     Sinais:
-        back_requested: jogador clicou em ◀ Back
+        back_requested:           jogador clicou em ◀ Back
         cancel_command_requested: jogador cancelou o comando pendente
-        go_to_tile_requested(tuple): jogador quer centralizar câmera no tile
+        go_to_tile_requested:     jogador quer centralizar câmera no tile
     """
 
     back_requested = Signal()
@@ -157,11 +162,62 @@ class SelectionPanel(QWidget):
         stats_layout.addWidget(self.label_budget)
 
         self.label_slowest = QLabel("")
-        self.label_slowest.setStyleSheet("color: #888; font-size: 11px; font-style: italic;")
+        self.label_slowest.setStyleSheet(
+            "color: #888; font-size: 11px; font-style: italic;"
+        )
         self.label_slowest.setWordWrap(True)
         stats_layout.addWidget(self.label_slowest)
 
         scroll_layout.addWidget(group_stats)
+
+        # --- Worker Actions (visível apenas para stacks exclusivas de workers) ---
+        self.group_worker = QGroupBox("⚒️ Worker Actions")
+        self.group_worker.setStyleSheet(self._group_style("#9E9E9E"))
+        worker_layout = QVBoxLayout(self.group_worker)
+        worker_layout.setContentsMargins(10, 15, 10, 10)
+        worker_layout.setSpacing(8)
+
+        self.label_worker_info = QLabel("")
+        self.label_worker_info.setStyleSheet("color: #aaa; font-size: 11px;")
+        self.label_worker_info.setWordWrap(True)
+        worker_layout.addWidget(self.label_worker_info)
+
+        self.btn_found_province = QPushButton("🏛️ Found Province")
+        self.btn_found_province.setToolTip(
+            "Found a new province at this tile.\n"
+            "Requires: colonizable biome, no existing province."
+        )
+        self.btn_found_province.setStyleSheet("""
+            QPushButton { background-color: #1B5E20; border: none; border-radius: 4px;
+                         padding: 8px 12px; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #2E7D32; }
+            QPushButton:pressed { background-color: #145214; }
+            QPushButton:disabled { background-color: #333; color: #666; }
+        """)
+        self.btn_found_province.clicked.connect(self._on_found_province)
+        worker_layout.addWidget(self.btn_found_province)
+
+        self.btn_reattach_worker = QPushButton("🏠 Reintegrate Worker")
+        self.btn_reattach_worker.setToolTip(
+            "Return this worker to the province at this tile.\n"
+            "Requires: a province at this tile."
+        )
+        self.btn_reattach_worker.setStyleSheet("""
+            QPushButton { background-color: #0D47A1; border: none; border-radius: 4px;
+                         padding: 8px 12px; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #1565C0; }
+            QPushButton:pressed { background-color: #0A3272; }
+            QPushButton:disabled { background-color: #333; color: #666; }
+        """)
+        self.btn_reattach_worker.clicked.connect(self._on_reattach_worker)
+        worker_layout.addWidget(self.btn_reattach_worker)
+
+        self.label_worker_action_status = QLabel("")
+        self.label_worker_action_status.setStyleSheet("color: #888; font-size: 11px;")
+        worker_layout.addWidget(self.label_worker_action_status)
+
+        self.group_worker.setVisible(False)  # escondido por padrão
+        scroll_layout.addWidget(self.group_worker)
 
         # --- Pending Command ---
         group_command = QGroupBox("📋 Pending Command")
@@ -197,7 +253,6 @@ class SelectionPanel(QWidget):
 
         cmd_layout.addWidget(self.command_frame)
 
-        # Placeholder (sem comando)
         self.label_no_command = QLabel(
             "ℹ️ Right-click a tile on the map\nto issue a move command."
         )
@@ -208,7 +263,6 @@ class SelectionPanel(QWidget):
         self.label_no_command.setWordWrap(True)
         cmd_layout.addWidget(self.label_no_command)
 
-        # Cancel button
         self.btn_cancel_command = QPushButton("🚫 Cancel Command")
         self.btn_cancel_command.setStyleSheet("""
             QPushButton {
@@ -240,10 +294,11 @@ class SelectionPanel(QWidget):
         for key, action in hints:
             row = QHBoxLayout()
             lbl_key = QLabel(key)
-            lbl_key.setStyleSheet("color: #FFD700; font-weight: bold; font-size: 11px;")
+            lbl_key.setStyleSheet(
+                "color: #FFD700; font-weight: bold; font-size: 11px;"
+            )
             lbl_key.setFixedWidth(100)
             row.addWidget(lbl_key)
-
             lbl_action = QLabel(action)
             lbl_action.setStyleSheet("color: #aaa; font-size: 11px;")
             row.addWidget(lbl_action)
@@ -262,10 +317,9 @@ class SelectionPanel(QWidget):
     def update_from_selection(self, controller):
         """
         Atualiza todo o painel com base no estado de seleção atual.
-        Chamado pelo Controller/Sidebar quando:
-          - Stack é selecionada (clique esquerdo)
-          - Comando é emitido (clique direito)
-          - Comando é cancelado (Escape ou botão)
+
+        Detecta se a stack é exclusivamente de workers e exibe/esconde
+        o grupo Worker Actions de acordo.
         """
         game = controller.game
         selection = controller.selection
@@ -311,13 +365,13 @@ class SelectionPanel(QWidget):
             color = UNIT_COLORS.get(key, "#aaa")
             cat = get_unit_category(key)
             cat_icon = CATEGORY_ICONS.get(cat, "")
-
             display_name = UNIT_DISPLAY_NAMES.get(key, key.replace("_", " ").title())
-
             efficacy = f"{stats.eficacia:.1f}" if stats else "?"
             movement = str(stats.movement) if stats else "?"
-
-            text = f"{icon} {display_name}  [{cat_icon}{cat}]  ⚔{efficacy}  🏃{movement}"
+            text = (
+                f"{icon} {display_name}  [{cat_icon}{cat}]"
+                f"  ⚔{efficacy}  🏃{movement}"
+            )
             item = QListWidgetItem(text)
             item.setForeground(QColor(color))
             self.unit_list.addItem(item)
@@ -328,7 +382,6 @@ class SelectionPanel(QWidget):
         self.label_movement.setText(f"Movement: {mov} points")
         self.label_budget.setText(f"Budget: {budget:.0f} cost units")
 
-        # Identificar a unidade mais lenta
         if len(units) > 1:
             slowest_key = None
             slowest_mov = 999
@@ -341,9 +394,20 @@ class SelectionPanel(QWidget):
                 name = UNIT_DISPLAY_NAMES.get(
                     slowest_key, slowest_key.replace("_", " ").title()
                 )
-                self.label_slowest.setText(f"⚠️ Limited by {name} (mov={slowest_mov})")
+                self.label_slowest.setText(
+                    f"⚠️ Limited by {name} (mov={slowest_mov})"
+                )
         else:
             self.label_slowest.setText("")
+
+        # --- Worker Actions ---
+        # Grupo visível apenas quando a stack é exclusivamente de workers
+        is_worker_stack = all(u.unit_key == "worker" for u in units)
+        self.group_worker.setVisible(is_worker_stack)
+        self.label_worker_action_status.setText("")
+
+        if is_worker_stack:
+            self._update_worker_actions(stack, province, game)
 
         # --- Pending Command ---
         cmd = game.command_manager.get_command(stack.uid)
@@ -356,7 +420,9 @@ class SelectionPanel(QWidget):
             self.label_no_command.setVisible(False)
             self.btn_cancel_command.setVisible(True)
 
-            self.label_command_type.setText(f"🟢 {cmd.command_type.name} → {cmd.destination}")
+            self.label_command_type.setText(
+                f"🟢 {cmd.command_type.name} → {cmd.destination}"
+            )
             self.label_command_dest.setText(f"Destination biome: {dest_biome}")
 
             path_len = len(cmd.path)
@@ -368,7 +434,6 @@ class SelectionPanel(QWidget):
             self.label_command_path.setText(
                 f"Path: {path_len} tiles, cost {cost:.1f}"
             )
-
             self.command_frame.setStyleSheet("""
                 QFrame {
                     background-color: #2d3a2d;
@@ -382,27 +447,153 @@ class SelectionPanel(QWidget):
             self.label_no_command.setVisible(True)
             self.btn_cancel_command.setVisible(False)
 
+    # ================================================================
+    # WORKER ACTIONS HELPERS
+    # ================================================================
+
+    def _update_worker_actions(self, stack, province, game) -> None:
+        """
+        Avalia e atualiza botões Fundar Província e Reintegrar Worker.
+        Chamado apenas quando is_worker_stack=True.
+        """
+        from core.workforce.facade import ProvinceWorkforceFacade
+
+        tile = stack.tile
+        # Pega o primeiro worker da stack (invariante: todos são workers)
+        first_worker_uid = stack.units[0].uid
+        n_workers = len(stack.units)
+
+        # ── Info contextual ──
+        prov_name = province.name if province else "wilderness"
+        self.label_worker_info.setText(
+            f"{n_workers} worker(s) at {tile} — {prov_name}"
+        )
+
+        # ── Fundar Província ──
+        can_found, found_reason = ProvinceWorkforceFacade.can_found_province(
+            first_worker_uid, game
+        )
+        self.btn_found_province.setEnabled(can_found)
+        self.btn_found_province.setToolTip(
+            f"Found a new province at {tile}.\n"
+            f"{'✅ Available' if can_found else f'❌ {found_reason}'}"
+        )
+
+        # ── Reintegrar Worker ──
+        if province is not None:
+            can_reattach, reattach_reason = ProvinceWorkforceFacade.can_reattach_worker(
+                first_worker_uid, province, game
+            )
+            self.btn_reattach_worker.setEnabled(can_reattach)
+            self.btn_reattach_worker.setToolTip(
+                f"Reintegrate worker into '{province.name}'.\n"
+                f"{'✅ Available' if can_reattach else f'❌ {reattach_reason}'}"
+            )
+        else:
+            self.btn_reattach_worker.setEnabled(False)
+            self.btn_reattach_worker.setToolTip(
+                "No province at this tile.\n"
+                "Move the worker to a province tile first."
+            )
+
+    # ================================================================
+    # WORKER CALLBACKS
+    # ================================================================
+
+    def _on_found_province(self) -> None:
+        ctrl = self.controller
+        game = ctrl.game
+        selection = ctrl.selection
+
+        if not game or not selection.has_selection:
+            return
+
+        stack = game.stacks.get_stack(selection.selected_stack_uid)
+        if not stack or stack.is_empty():
+            return
+
+        # Usa o primeiro worker da stack (stack exclusiva de workers)
+        first_worker_uid = stack.units[0].uid
+        ok = ctrl.action_found_province(first_worker_uid)
+
+        if ok:
+            self.label_worker_action_status.setText("🏛️ Province founded!")
+            self.label_worker_action_status.setStyleSheet(
+                "color: #4CAF50; font-size: 11px;"
+            )
+            # Controller já limpou a seleção — painel será fechado pelo Sidebar
+        else:
+            self.label_worker_action_status.setText("❌ Cannot found province here.")
+            self.label_worker_action_status.setStyleSheet(
+                "color: #F44336; font-size: 11px;"
+            )
+            self.update_from_selection(ctrl)
+
+    def _on_reattach_worker(self) -> None:
+        ctrl = self.controller
+        game = ctrl.game
+        selection = ctrl.selection
+
+        if not game or not selection.has_selection:
+            return
+
+        stack = game.stacks.get_stack(selection.selected_stack_uid)
+        if not stack or stack.is_empty():
+            return
+
+        province = game.get_province(stack.tile)
+        if not province:
+            self.label_worker_action_status.setText(
+                "❌ No province at this tile."
+            )
+            self.label_worker_action_status.setStyleSheet(
+                "color: #F44336; font-size: 11px;"
+            )
+            return
+
+        first_worker_uid = stack.units[0].uid
+        ok = ctrl.action_reattach_worker(first_worker_uid, province)
+
+        if ok:
+            self.label_worker_action_status.setText("🏠 Worker reintegrated!")
+            self.label_worker_action_status.setStyleSheet(
+                "color: #4CAF50; font-size: 11px;"
+            )
+        else:
+            self.label_worker_action_status.setText("❌ Cannot reintegrate here.")
+            self.label_worker_action_status.setStyleSheet(
+                "color: #F44336; font-size: 11px;"
+            )
+            self.update_from_selection(ctrl)
+
+    # ================================================================
+    # EMPTY STATE
+    # ================================================================
+
     def _show_empty(self):
         self.label_tile_coords.setText("Tile: —")
         self.label_tile_biome.setText("Biome: —")
         self.label_tile_owner.setText("Owner: —")
+        self.label_tile_owner.setStyleSheet("color: #4CAF50;")
         self.label_unit_count.setText("0 units")
         self.unit_list.clear()
         self.label_movement.setText("Movement: —")
         self.label_budget.setText("Budget: —")
         self.label_slowest.setText("")
+        self.group_worker.setVisible(False)
+        self.label_worker_action_status.setText("")
         self.command_frame.setVisible(False)
         self.label_no_command.setVisible(True)
         self.btn_cancel_command.setVisible(False)
+
+    # ================================================================
+    # MISC
+    # ================================================================
 
     def _emit_go_to(self):
         sel = self.controller.selection
         if sel and sel.selected_tile:
             self.go_to_tile_requested.emit(sel.selected_tile)
-
-    # ================================================================
-    # STYLE HELPER
-    # ================================================================
 
     @staticmethod
     def _group_style(color: str) -> str:
