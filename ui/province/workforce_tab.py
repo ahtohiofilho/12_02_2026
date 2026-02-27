@@ -48,6 +48,9 @@ class WorkforceTabWidget(QWidget):
         self._has_food = False
         self._has_ore = False
 
+        # --- Civ revenue total (baseline + delta) ---
+        self._baseline_civ_revenue_total: float | None = None
+
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self._init_ui()
 
@@ -67,7 +70,48 @@ class WorkforceTabWidget(QWidget):
             self._has_ore = False
 
         self._update_biome_adaptation()
+
+        # Baseline da sessão (ao entrar/selecionar província)
+        self._baseline_civ_revenue_total = self._calc_civ_total_revenue()
+
         self.update_display()
+
+    def _calc_civ_total_revenue(self) -> float:
+        if not self.facade:
+            return 0.0
+
+        civ = getattr(self.controller, "controlled_civ", None)
+        if civ is None:
+            return 0.0
+
+        planet = self.facade.planet
+        r = planet.economy.calcular_equilibrio()
+
+        return float(sum(float(r.get_receita_total(p.tile_coords) or 0.0) for p in civ.provinces))
+
+    def _refresh_civ_total_revenue_labels(self) -> None:
+        # labels só existem depois do _init_ui/_create_revenue_section
+        if not hasattr(self, "label_civ_total_revenue"):
+            return
+
+        total = self._calc_civ_total_revenue()
+        self.label_civ_total_revenue.setText(f"${total:.2f}")
+
+        if self._baseline_civ_revenue_total is None:
+            self.label_civ_total_revenue_delta.setText("")
+            self.label_civ_total_revenue_delta.setStyleSheet("color: #888; font-style: italic;")
+            return
+
+        delta = total - float(self._baseline_civ_revenue_total)
+        if abs(delta) < 1e-6:
+            self.label_civ_total_revenue_delta.setText("(+0.00)")
+            self.label_civ_total_revenue_delta.setStyleSheet("color: #9e9e9e; font-style: italic;")
+        elif delta > 0:
+            self.label_civ_total_revenue_delta.setText(f"(+{delta:.2f})")
+            self.label_civ_total_revenue_delta.setStyleSheet("color: #4CAF50; font-style: italic;")
+        else:
+            self.label_civ_total_revenue_delta.setText(f"({delta:.2f})")  # delta já é negativo
+            self.label_civ_total_revenue_delta.setStyleSheet("color: #F44336; font-style: italic;")
 
     def update_display(self) -> None:
         if not self.facade:
@@ -145,6 +189,8 @@ class WorkforceTabWidget(QWidget):
 
         # ---- Queue ----
         self._update_queue_display()
+
+        self._refresh_civ_total_revenue_labels()
 
     # ------------------------------------------------------------------ #
     #  Biome adaptation                                                    #
@@ -549,6 +595,7 @@ class WorkforceTabWidget(QWidget):
         layout.setContentsMargins(10, 15, 10, 10)
         layout.setSpacing(6)
 
+        # ---- Per-province revenue ----
         self.label_food_revenue_name = QLabel("🌾 Food:")
         layout.addWidget(self.label_food_revenue_name, 0, 0)
         self.label_food_revenue = QLabel("—")
@@ -573,6 +620,24 @@ class WorkforceTabWidget(QWidget):
         note.setStyleSheet("color: #666; font-size: 9px; font-style: italic;")
         note.setWordWrap(True)
         layout.addWidget(note, 3, 0, 1, 2)
+
+        # ---- Civilization totals (all provinces) ----
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("background-color: #3a3a3a; margin: 6px 0;")
+        layout.addWidget(sep, 4, 0, 1, 2)
+
+        layout.addWidget(QLabel("Civilization total:"), 5, 0)
+        self.label_civ_total_revenue = QLabel("—")
+        self.label_civ_total_revenue.setStyleSheet("color: #ddd; font-weight: bold;")
+        self.label_civ_total_revenue.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.label_civ_total_revenue, 5, 1)
+
+        layout.addWidget(QLabel("Δ (session):"), 6, 0)
+        self.label_civ_total_revenue_delta = QLabel("")
+        self.label_civ_total_revenue_delta.setStyleSheet("color: #888; font-style: italic;")
+        self.label_civ_total_revenue_delta.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.label_civ_total_revenue_delta, 6, 1)
 
         return group
 
