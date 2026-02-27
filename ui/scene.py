@@ -134,6 +134,10 @@ class SceneWidget(QOpenGLWidget):
 
         tur = getattr(self.renderer, "tile_units_renderer", None)
         if tur is not None:
+            # Propagar civ controlada para o renderer
+            if hasattr(self.controller, 'controlled_civ_id'):
+                tur._controlled_civ_id = self.controller.controlled_civ_id
+
             tur.set_data(planet_object, self.renderer.centros_3d_tiles)
 
         self.update()
@@ -156,21 +160,22 @@ class SceneWidget(QOpenGLWidget):
         if not self.renderer or self.camera is None:
             return
 
-        # só aplica quando os recursos GL do renderer existem
-        # (se sua init_gl cria a visibility_texture)
         if self.renderer.needs_init():
             return
 
         explored, visible = self._pending_fow
         self._fow_dirty = False
 
-        # Upload GL (agora estamos em paintGL, contexto atual é válido)
+        # Upload GL
         self.renderer.update_visibility_texture(explored, visible)
 
-        # CPU-side filters (não fazem GL; ok aqui também)
+        # CPU-side filters
         tur = getattr(self.renderer, "tile_units_renderer", None)
         if tur is not None:
             tur.visible_tiles = visible
+            # Garantir que _controlled_civ_id está atualizado
+            if hasattr(self.controller, 'controlled_civ_id'):
+                tur._controlled_civ_id = self.controller.controlled_civ_id
 
         cfr = getattr(self.renderer, "civ_flag_renderer", None)
         if cfr is not None:

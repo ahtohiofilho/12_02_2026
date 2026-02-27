@@ -4,11 +4,13 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Corrigi a visão das unidades, sendo agora 0 ou 1.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/unit_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/unit_stats.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/combat/unit_adapter.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/unit_adapter.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/gameplay.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/gameplay.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/visibility_rules.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/visibility_rules.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/tile_units_renderer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/visibility.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/visibility.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -351,7 +353,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772162251126</updated>
     </task>
-    <option name="localTasksCounter" value="35" />
+    <task id="LOCAL-00035" summary="Corrigi a visão das unidades, sendo agora 0 ou 1.">
+      <option name="closed" value="true" />
+      <created>1772166808671</created>
+      <option name="number" value="00035" />
+      <option name="presentableId" value="LOCAL-00035" />
+      <option name="project" value="LOCAL" />
+      <updated>1772166808671</updated>
+    </task>
+    <option name="localTasksCounter" value="36" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -366,7 +376,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Fiz alguns melhoramentos na ui." />
     <MESSAGE value="Comecei a refatorar a ui relacionada à província." />
     <MESSAGE value="Implementei a aba Workforce." />
     <MESSAGE value="Fiz uma refatoração em vários pontos da lógica." />
@@ -391,6 +400,7 @@
     <MESSAGE value="Implementei o Fog of War. Falta só limitar a renderização das bandeiras." />
     <MESSAGE value="Corrigi um bug relacionado à alternância entre visão geral e visão com FoW." />
     <MESSAGE value="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional." />
-    <option name="LAST_COMMIT_MESSAGE" value="Implementei a função Detach para gerar Workers. Falta alguns detalhes, mas a base está funcional." />
+    <MESSAGE value="Corrigi a visão das unidades, sendo agora 0 ou 1." />
+    <option name="LAST_COMMIT_MESSAGE" value="Corrigi a visão das unidades, sendo agora 0 ou 1." />
   </component>
 </project>

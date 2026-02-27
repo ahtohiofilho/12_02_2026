@@ -30,6 +30,7 @@ ALLOWED_BIOMES_PER_CATEGORY = {
         'Meadow', 'Forest', 'Savanna', 'Hills', 'Mountains', 'Desert',
         'Coast', 'Sea', 'Ocean', 'Ice'
     ],
+    'civilian': ['Meadow', 'Forest', 'Savanna', 'Desert', 'Hills', 'Mountains', 'Ice'],
 }
 
 MIN_WORKERS_FIXOS: int = 1
