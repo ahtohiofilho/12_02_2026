@@ -1,14 +1,13 @@
 # controller.py
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import Sequence, Tuple
 from ui.window import MainWindow
 from core.planet import Planet
 from input.input_manager import InputManager
 from core.selection.state import SelectionState
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QCursor
 from config.unit_stats import get_unit_stats
 from core.diplomacy import Relation
 from core.commands.pathfinding import allowed_biomes_for_stack
@@ -96,8 +95,12 @@ class Controller:
         self.window.sidebar.btn_exit.clicked.connect(self.app.quit)
         self.window.sidebar.btn_create.clicked.connect(self.action_create_planet)
 
-        if self.window and hasattr(self.window.sidebar, "civ_manager_view"):
+        if hasattr(self.window.sidebar, "civ_manager_view"):
             self.window.sidebar.civ_manager_view.go_to_capital_requested.connect(self._on_go_to_capital)
+
+        # Sinal público da sidebar (a sidebar re-emite de qualquer widget interno)
+        if hasattr(self.window.sidebar, "stack_selected"):
+            self.window.sidebar.stack_selected.connect(self.select_stack_by_uid)
 
     @property
     def camera(self):
@@ -110,7 +113,7 @@ class Controller:
         return self.window.scene if (self.window and self.window.scene) else None
 
     # ----------------------------
-    # Fog of War (NOVO)
+    # Fog of War
     # ----------------------------
     def update_fow(self) -> None:
         """Aplica (na UI) o estado de Fog of War já calculado para a civ controlada."""
@@ -480,6 +483,45 @@ class Controller:
     # ----------------------------
     # Seleção de Stack
     # ----------------------------
+
+    def select_stack_by_uid(self, stack_uid: str) -> None:
+        if not self.game:
+            return
+
+        stack = self.game.stacks.get_stack(stack_uid)
+        if not stack or stack.is_empty():
+            return
+
+        civ = self.controlled_civ
+        if civ and stack.owner_id != civ.id and not self.debug_mode:
+            return
+
+        # 1) Estado de seleção (fonte de verdade)
+        self.selection.select_stack(stack.uid, stack.tile)
+
+        # 2) Overlay de rota
+        cmd = self.game.command_manager.get_command(stack.uid)
+        if cmd and cmd.path:
+            self._set_route_overlay(cmd.path)
+        else:
+            self._clear_route_overlay()
+
+        # 3) UI: marca stack ativa
+        if self.window and hasattr(self.window.sidebar, "set_active_stack_uid"):
+            self.window.sidebar.set_active_stack_uid(stack.uid)
+
+        # 4) ✅ Scene: informe explicitamente qual é a stack ativa (novo)
+        #    (isso só funciona se você implementar SceneWidget.set_active_stack_uid
+        #     e o tile_units_renderer respeitar esse uid na escolha do que desenhar)
+        if self.scene and hasattr(self.scene, "set_active_stack_uid"):
+            self.scene.set_active_stack_uid(stack.uid)
+
+        # 5) Re-render
+        if self.scene:
+            if hasattr(self.scene, "update_units_data"):
+                self.scene.update_units_data(self.game)
+            self.scene.update()
+
     def on_tile_left_clicked(self, tile_coords):
         if not self.game:
             return
@@ -489,23 +531,34 @@ class Controller:
             return
 
         stacks = self.game.stacks.stacks_in_tile(tile_coords)
-        own_stack = None
-        for s in stacks:
-            if s.owner_id == civ.id and not s.is_empty():
-                own_stack = s
-                break
 
-        if own_stack:
-            self.selection.select_stack(own_stack.uid, tile_coords)
-            units_str = ", ".join(u.unit_key for u in own_stack.units)
-            civ_label = f" [{civ.name}]" if self.debug_mode else ""
-            print(f"✅ Stack selecionada em {tile_coords}{civ_label}: [{units_str}]")
+        if self.debug_mode:
+            selectable_stacks = [s for s in stacks if not s.is_empty()]
+        else:
+            selectable_stacks = [s for s in stacks if (not s.is_empty() and s.owner_id == civ.id)]
 
-            cmd = self.game.command_manager.get_command(own_stack.uid)
-            if cmd and cmd.path:
-                self._set_route_overlay(cmd.path)
-            else:
-                self._clear_route_overlay()
+        if selectable_stacks:
+            active_uid = None
+            if self.selection.has_selection:
+                prev_uid = self.selection.selected_stack_uid
+                prev_stack = self.game.stacks.get_stack(prev_uid) if prev_uid else None
+                if prev_stack and prev_stack.tile == tile_coords and any(s.uid == prev_uid for s in selectable_stacks):
+                    active_uid = prev_uid
+
+            if active_uid is None:
+                active_uid = selectable_stacks[0].uid
+
+            # Sidebar recebe lista do tile + uid ativo
+            if self.window and hasattr(self.window.sidebar, "set_tile_stacks"):
+                self.window.sidebar.set_tile_stacks(
+                    tile_coords=tile_coords,
+                    stacks=selectable_stacks,
+                    active_stack_uid=active_uid,
+                    controlled_civ_id=int(self.controlled_civ_id),
+                )
+
+            # Seleciona stack ativa (ordens/rota/render)
+            self.select_stack_by_uid(active_uid)
 
             province = self.game.get_province(tile_coords)
             if province and self.window:
@@ -513,21 +566,21 @@ class Controller:
             else:
                 if self.window and hasattr(self.window.sidebar, "show_selection_panel"):
                     self.window.sidebar.show_selection_panel()
+            return
 
-        else:
-            self.selection.clear()
-            self._clear_route_overlay()
-            print(f"ℹ️ Nenhuma stack própria em {tile_coords}. Seleção limpa.")
+        # sem stack
+        self.selection.clear()
+        self._clear_route_overlay()
 
-            if self.input_manager:
-                self.input_manager.clear_hover_state()
+        if self.input_manager:
+            self.input_manager.clear_hover_state()
 
-            if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
-                self.window.sidebar.hide_selection_panel()
+        if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
+            self.window.sidebar.hide_selection_panel()
 
-            province = self.game.get_province(tile_coords)
-            if province and self.window:
-                self.window.sidebar._on_province_selected(province)
+        province = self.game.get_province(tile_coords)
+        if province and self.window:
+            self.window.sidebar._on_province_selected(province)
 
         if self.scene:
             self.scene.update()

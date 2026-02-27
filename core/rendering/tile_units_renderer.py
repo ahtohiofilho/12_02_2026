@@ -14,6 +14,8 @@ class TileUnitsRenderer:
         self.textures_cache = {}  # Cache: sprite_key -> GL texture ID
         self.initialized = False
 
+        self.active_stack_uid: str | None = None
+
         self.shader_program = 0
         self.vao = None
         self.vbo = None
@@ -90,8 +92,10 @@ class TileUnitsRenderer:
         # Tiles visíveis via Fog of War (para filtrar unidades inimigas)
         visible_tiles = getattr(self, "visible_tiles", None)
 
-        tiles_com_unidades = list(planet.stacks.stack_uids_by_tile.keys())
+        tiles_com_unidades = list(getattr(planet.stacks, "stack_uids_by_tile", {}).keys())
         print(f"🔍 Tiles que possuem stacks (pilhas): {tiles_com_unidades}")
+
+        active_uid = getattr(self, "active_stack_uid", None)
 
         for tile, stack_uids in planet.stacks.stack_uids_by_tile.items():
             if not stack_uids:
@@ -101,65 +105,93 @@ class TileUnitsRenderer:
             if center_3d is None:
                 continue
 
-            # Processa todas as stacks no tile
-            for stack_uid in stack_uids:
-                stack = planet.stacks.get_stack(stack_uid)
-                if not stack or stack.is_empty():
-                    continue
+            # ------------------------------------------------------------
+            # ✅ Escolhe UMA stack para renderizar neste tile
+            #    prioridade: stack ativa (se estiver neste tile e for renderizável)
+            #    fallback: primeira stack "renderizável" (considerando FoW)
+            # ------------------------------------------------------------
+            chosen_stack = None
 
-                # Determina se esta stack é da civilização controlada
-                is_own_stack = stack.owner_id == self._controlled_civ_id
+            def stack_is_renderable(st) -> bool:
+                if not st or st.is_empty():
+                    return False
+
+                is_own = st.owner_id == self._controlled_civ_id
 
                 # REGRA DE VISIBILIDADE:
-                # - Unidades PRÓPRIAS: sempre renderizadas (VisibilityManager garante visibilidade)
-                # - Unidades INIMIGAS/NEUTRAS: só renderizadas se o tile estiver visível
-                if not is_own_stack and visible_tiles is not None and tile not in visible_tiles:
-                    continue  # Inimigo em tile não visível: não renderiza
+                # - Unidades PRÓPRIAS: sempre renderizadas
+                # - Unidades INIMIGAS/NEUTRAS: só se o tile estiver visível
+                if not is_own and visible_tiles is not None and tile not in visible_tiles:
+                    return False
 
-                total_units = len(stack.units)
-                center_vec = glm.vec3(center_3d[0], center_3d[1], center_3d[2])
+                return True
 
-                for i, unit in enumerate(stack.units):
-                    unit_key = getattr(unit, "unit_key", "DESCONHECIDO")
-                    print(f"✅ Encontrada unidade '{unit_key}' no tile {tile} (civ={stack.owner_id}, own={is_own_stack})")
+            # 1) tenta stack ativa (se ela estiver neste tile)
+            if active_uid and active_uid in stack_uids:
+                st = planet.stacks.get_stack(active_uid)
+                if stack_is_renderable(st):
+                    chosen_stack = st
 
-                    stats = get_unit_stats(unit_key)
-                    if not stats:
-                        print(f"❌ Erro: Status não encontrados para a unidade '{unit_key}'.")
-                        continue
+            # 2) fallback: primeira renderizável
+            if chosen_stack is None:
+                for uid in stack_uids:
+                    st = planet.stacks.get_stack(uid)
+                    if stack_is_renderable(st):
+                        chosen_stack = st
+                        break
 
-                    sprite_key = getattr(stats, "sprite_key", unit_key)
+            if chosen_stack is None:
+                continue
 
-                    # Calcula posição com spread se múltiplas unidades
-                    if total_units > 1:
-                        normal = glm.normalize(center_vec)
+            is_own_stack = chosen_stack.owner_id == self._controlled_civ_id
+            total_units = len(chosen_stack.units)
+            center_vec = glm.vec3(center_3d[0], center_3d[1], center_3d[2])
 
-                        north = glm.vec3(0.0, 1.0, 0.0)
-                        if abs(glm.dot(normal, north)) > 0.99:
-                            north = glm.vec3(1.0, 0.0, 0.0)
+            for i, unit in enumerate(chosen_stack.units):
+                unit_key = getattr(unit, "unit_key", "DESCONHECIDO")
+                print(
+                    f"✅ Render stack='{getattr(chosen_stack, 'uid', '?')}' "
+                    f"unit='{unit_key}' no tile {tile} "
+                    f"(civ={chosen_stack.owner_id}, own={is_own_stack})"
+                )
 
-                        right = glm.normalize(glm.cross(north, normal))
-                        forward = glm.normalize(glm.cross(normal, right))
+                stats = get_unit_stats(unit_key)
+                if not stats:
+                    print(f"❌ Erro: Status não encontrados para a unidade '{unit_key}'.")
+                    continue
 
-                        spread_radius = 0.3
-                        angle = (i / total_units) * math.pi * 2.0
+                sprite_key = getattr(stats, "sprite_key", unit_key)
 
-                        offset_pos = center_vec + (right * math.cos(angle) * spread_radius) + (
-                                forward * math.sin(angle) * spread_radius
-                        )
+                # Calcula posição com spread se múltiplas unidades
+                if total_units > 1:
+                    normal = glm.normalize(center_vec)
 
-                        radius = glm.length(center_vec)
-                        offset_pos = glm.normalize(offset_pos) * radius
-                        final_center = (offset_pos.x, offset_pos.y, offset_pos.z)
-                    else:
-                        final_center = (center_vec.x, center_vec.y, center_vec.z)
+                    north = glm.vec3(0.0, 1.0, 0.0)
+                    if abs(glm.dot(normal, north)) > 0.99:
+                        north = glm.vec3(1.0, 0.0, 0.0)
 
-                    self.instances.append({
-                        "center": final_center,
-                        "sprite_key": sprite_key,
-                        "is_civilian": getattr(stats, "is_non_combat", False),
-                        "is_own_unit": is_own_stack,  # Para possível destaque visual
-                    })
+                    right = glm.normalize(glm.cross(north, normal))
+                    forward = glm.normalize(glm.cross(normal, right))
+
+                    spread_radius = 0.3
+                    angle = (i / total_units) * math.pi * 2.0
+
+                    offset_pos = center_vec + (right * math.cos(angle) * spread_radius) + (
+                            forward * math.sin(angle) * spread_radius
+                    )
+
+                    radius = glm.length(center_vec)
+                    offset_pos = glm.normalize(offset_pos) * radius
+                    final_center = (offset_pos.x, offset_pos.y, offset_pos.z)
+                else:
+                    final_center = (center_vec.x, center_vec.y, center_vec.z)
+
+                self.instances.append({
+                    "center": final_center,
+                    "sprite_key": sprite_key,
+                    "is_civilian": getattr(stats, "is_non_combat", False),
+                    "is_own_unit": is_own_stack,
+                })
 
         print(f"--- [UnitsRenderer] Total de instâncias prontas para desenhar: {len(self.instances)} ---")
 

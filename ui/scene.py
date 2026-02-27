@@ -251,3 +251,9 @@ class SceneWidget(QOpenGLWidget):
             cam_pos = cam_pos()
 
         self.renderer.render(view_matrix, projection_matrix, cam_pos)
+
+    def set_active_stack_uid(self, stack_uid: str | None) -> None:
+        tur = getattr(self.renderer, "tile_units_renderer", None)
+        if tur is not None:
+            tur.active_stack_uid = stack_uid  # novo atributo no renderer
+        self.update()

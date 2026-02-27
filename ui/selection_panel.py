@@ -44,11 +44,17 @@ class SelectionPanel(QWidget):
     back_requested = Signal()
     cancel_command_requested = Signal()
     go_to_tile_requested = Signal(object)
+    stack_selected = Signal(str)
 
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        self._stack_buttons_by_uid: dict[str, QPushButton] = {}
+        self._active_stack_uid: str | None = None
+        self._tile_coords_for_stack_list = None
+
         self._init_ui()
 
     # ================================================================
@@ -114,6 +120,29 @@ class SelectionPanel(QWidget):
         loc_layout.addWidget(self.label_tile_owner)
 
         scroll_layout.addWidget(group_location)
+
+        # ----------------------------------------------------------------
+        # ✅ NOVO: Stacks no tile (selector) — embutido no painel existente
+        # ----------------------------------------------------------------
+        self.group_tile_stacks = QGroupBox("🧩 Stacks Here")
+        self.group_tile_stacks.setStyleSheet(self._group_style("#FFC107"))
+        tile_stacks_layout = QVBoxLayout(self.group_tile_stacks)
+        tile_stacks_layout.setContentsMargins(10, 15, 10, 10)
+        tile_stacks_layout.setSpacing(6)
+
+        self.label_tile_stacks_hint = QLabel("—")
+        self.label_tile_stacks_hint.setStyleSheet("color: #aaa; font-size: 11px;")
+        self.label_tile_stacks_hint.setWordWrap(True)
+        tile_stacks_layout.addWidget(self.label_tile_stacks_hint)
+
+        # Layout onde os botões checkáveis serão inseridos/reusados
+        self.stacks_layout = QVBoxLayout()
+        self.stacks_layout.setSpacing(6)
+        tile_stacks_layout.addLayout(self.stacks_layout)
+
+        # esconde por padrão; você vai mostrar em set_tile_stacks(...) quando fizer sentido
+        self.group_tile_stacks.setVisible(False)
+        scroll_layout.addWidget(self.group_tile_stacks)
 
         # --- Units in Stack ---
         group_units = QGroupBox("🎖️ Stack Units")
@@ -314,6 +343,76 @@ class SelectionPanel(QWidget):
     # PUBLIC: update from controller state
     # ================================================================
 
+    def set_tile_stacks(
+            self,
+            tile_coords,
+            stacks,
+            active_stack_uid: str | None,
+            controlled_civ_id: int,
+    ):
+        """
+        Atualiza a lista de stacks no tile SEM recriar widgets desnecessariamente.
+        Cria botões novos só quando aparecem novas stacks; remove quando somem.
+        Mostra “Stack ativa” mesmo quando há apenas 1 stack.
+        """
+        # guarda contexto
+        self._tile_coords_for_stack_list = tile_coords
+
+        # 0 stacks: esconde e limpa
+        if not stacks:
+            self.group_tile_stacks.setVisible(False)
+            self.label_tile_stacks_hint.setText("—")
+            self._clear_stack_buttons()
+            self._active_stack_uid = None
+            self._tile_coords_for_stack_list = None
+            return
+
+        # 1+ stacks: mostra grupo
+        self.group_tile_stacks.setVisible(True)
+
+        if len(stacks) == 1:
+            self.label_tile_stacks_hint.setText(f"Stack ativa em {tile_coords}:")
+        else:
+            self.label_tile_stacks_hint.setText(
+                f"{len(stacks)} stack(s) em {tile_coords}. Selecione qual comandar:"
+            )
+
+        new_uids = [s.uid for s in stacks]
+        new_uid_set = set(new_uids)
+
+        # remove botões que não existem mais
+        for uid in list(self._stack_buttons_by_uid.keys()):
+            if uid not in new_uid_set:
+                btn = self._stack_buttons_by_uid.pop(uid)
+                btn.setParent(None)
+                btn.deleteLater()
+
+        # cria/atualiza botões (reusando quando possível)
+        for s in stacks:
+            btn = self._stack_buttons_by_uid.get(s.uid)
+            if btn is None:
+                btn = QPushButton(self._format_stack_label(s, controlled_civ_id))
+                btn.setCheckable(True)
+                btn.setStyleSheet(self._stack_button_style())
+                btn.clicked.connect(
+                    lambda _=False, uid=s.uid: self.stack_selected.emit(uid)
+                )
+                self._stack_buttons_by_uid[s.uid] = btn
+                self.stacks_layout.addWidget(btn)
+            else:
+                btn.setText(self._format_stack_label(s, controlled_civ_id))
+
+        # garante highlight consistente (sem disparar signals)
+        self.set_active_stack_uid(active_stack_uid)
+
+    def set_active_stack_uid(self, active_stack_uid: str | None):
+        """Só muda checked/highlight nos botões existentes."""
+        self._active_stack_uid = active_stack_uid
+        for uid, btn in self._stack_buttons_by_uid.items():
+            btn.blockSignals(True)
+            btn.setChecked(uid == active_stack_uid)
+            btn.blockSignals(False)
+
     def update_from_selection(self, controller):
         """
         Atualiza todo o painel com base no estado de seleção atual.
@@ -401,7 +500,6 @@ class SelectionPanel(QWidget):
             self.label_slowest.setText("")
 
         # --- Worker Actions ---
-        # Grupo visível apenas quando a stack é exclusivamente de workers
         is_worker_stack = all(u.unit_key == "worker" for u in units)
         self.group_worker.setVisible(is_worker_stack)
         self.label_worker_action_status.setText("")
@@ -446,6 +544,12 @@ class SelectionPanel(QWidget):
             self.command_frame.setVisible(False)
             self.label_no_command.setVisible(True)
             self.btn_cancel_command.setVisible(False)
+
+        # ✅ Mantém highlight consistente quando o painel atualiza
+        # (não reconstrói lista; só marca o botão checkado se o grupo estiver visível)
+        if hasattr(self, "group_tile_stacks") and self.group_tile_stacks.isVisible():
+            if hasattr(self, "set_active_stack_uid"):
+                self.set_active_stack_uid(stack.uid)
 
     # ================================================================
     # WORKER ACTIONS HELPERS
@@ -575,13 +679,23 @@ class SelectionPanel(QWidget):
         self.label_tile_biome.setText("Biome: —")
         self.label_tile_owner.setText("Owner: —")
         self.label_tile_owner.setStyleSheet("color: #4CAF50;")
+
+        # Limpa/esconde seletor de stacks do tile
+        self.group_tile_stacks.setVisible(False)
+        self.label_tile_stacks_hint.setText("—")
+        self._clear_stack_buttons()
+        self._active_stack_uid = None
+        self._tile_coords_for_stack_list = None
+
         self.label_unit_count.setText("0 units")
         self.unit_list.clear()
         self.label_movement.setText("Movement: —")
         self.label_budget.setText("Budget: —")
         self.label_slowest.setText("")
+
         self.group_worker.setVisible(False)
         self.label_worker_action_status.setText("")
+
         self.command_frame.setVisible(False)
         self.label_no_command.setVisible(True)
         self.btn_cancel_command.setVisible(False)
@@ -613,3 +727,39 @@ class SelectionPanel(QWidget):
                 color: {color};
             }}
         """
+
+    def _clear_stack_buttons(self):
+        for uid, btn in list(self._stack_buttons_by_uid.items()):
+            self._stack_buttons_by_uid.pop(uid, None)
+            btn.setParent(None)
+            btn.deleteLater()
+
+    def _stack_button_style(self) -> str:
+        # checked = highlight
+        return """
+            QPushButton {
+                text-align: left;
+                background-color: #1e1e1e;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                padding: 8px 10px;
+                color: #ddd;
+            }
+            QPushButton:hover {
+                border: 1px solid #5a5a5a;
+                background-color: #242424;
+            }
+            QPushButton:checked {
+                border: 1px solid #FF9800;
+                background-color: #2a2418;
+                color: #FFD700;
+                font-weight: bold;
+            }
+        """
+
+    def _format_stack_label(self, stack, controlled_civ_id: int) -> str:
+        # deixe simples e útil
+        units = getattr(stack, "units", []) or []
+        unit_keys = [u.unit_key for u in units]
+        summary = ", ".join(unit_keys) if unit_keys else "—"
+        return f"{stack.uid[:8]} • {len(units)} unit(s): {summary}"

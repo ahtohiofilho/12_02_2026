@@ -4,9 +4,11 @@ from PySide6.QtWidgets import QWidget, QVBoxLayout, QStackedWidget
 from .civ_manager import CivilizationManagerWidget
 from .province.detail_panel import ProvinceDetailPanel
 from .selection_panel import SelectionPanel
+from PySide6.QtCore import Signal
 
 
 class SideBar(QWidget):
+    stack_selected = Signal(str)
     def __init__(self, controller, parent=None):
         super().__init__(parent)
         self.controller = controller
@@ -37,6 +39,11 @@ class SideBar(QWidget):
         self._pre_selection_page: int | None = None
         self._pre_selection_tab: int | None = None
 
+        # Estado do "tile stacks" (inicializa para evitar estado fantasma)
+        self._tile_stacks_tile = None
+        self._tile_stacks_uids: list[str] = []
+        self._active_stack_uid: str | None = None
+
         # === CONEXÕES INTERNAS ===
         self.civ_manager_view.province_selected.connect(self._on_province_selected)
         self.province_detail.back_requested.connect(self._on_back_from_province)
@@ -46,6 +53,49 @@ class SideBar(QWidget):
         self.selection_panel.back_requested.connect(self._on_back_from_selection)
         self.selection_panel.cancel_command_requested.connect(self._on_cancel_command)
         self.selection_panel.go_to_tile_requested.connect(self._on_go_to_tile)
+
+        # ✅ Re-emite seleção de stack (SelectionPanel → SideBar → Controller)
+        # Isso remove dependência de "stacks_panel" no Controller.
+        if hasattr(self.selection_panel, "stack_selected"):
+            self.selection_panel.stack_selected.connect(self.stack_selected.emit)
+
+    def set_tile_stacks(self, tile_coords, stacks, active_stack_uid: str | None, controlled_civ_id: int):
+        """
+        Complementa a UI atual (SelectionPanel / ProvinceDetail) com a lista de stacks do tile.
+        Não cria uma tela nova.
+        """
+        self._tile_stacks_tile = tile_coords
+        self._tile_stacks_uids = [s.uid for s in stacks]
+        self._active_stack_uid = active_stack_uid
+
+        # 1) Atualiza o SelectionPanel (onde você quer que apareça a lista)
+        if hasattr(self.selection_panel, "set_tile_stacks"):
+            self.selection_panel.set_tile_stacks(
+                tile_coords=tile_coords,
+                stacks=stacks,
+                active_stack_uid=active_stack_uid,
+                controlled_civ_id=controlled_civ_id,
+            )
+
+        # 2) Opcional: também atualizar a aba Units do ProvinceDetail se você quiser
+        # (só se esse painel tiver um método semelhante)
+        if hasattr(self.province_detail, "set_tile_stacks"):
+            self.province_detail.set_tile_stacks(
+                tile_coords=tile_coords,
+                stacks=stacks,
+                active_stack_uid=active_stack_uid,
+                controlled_civ_id=controlled_civ_id,
+            )
+
+    def set_active_stack_uid(self, active_stack_uid: str | None):
+        """Só muda checked/highlight, sem reconstruir lista."""
+        self._active_stack_uid = active_stack_uid
+
+        if hasattr(self.selection_panel, "set_active_stack_uid"):
+            self.selection_panel.set_active_stack_uid(active_stack_uid)
+
+        if hasattr(self.province_detail, "set_active_stack_uid"):
+            self.province_detail.set_active_stack_uid(active_stack_uid)
 
     def _create_menu_widget(self):
         from PySide6.QtCore import Qt
