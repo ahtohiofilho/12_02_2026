@@ -102,10 +102,10 @@ class VisibilityManager:
     # Update principal
     # ----------------------------
     def update_all_civs(
-        self,
-        *,
-        rules: Optional[VisibilityRules] = None,
-        vision_range: Optional[int] = None,  # compat opcional com chamadas antigas (override global)
+            self,
+            *,
+            rules: Optional[VisibilityRules] = None,
+            vision_range: Optional[int] = None,  # compat opcional com chamadas antigas (override global)
     ) -> None:
         """
         Recalcula visibilidade de todas as civs.
@@ -134,6 +134,11 @@ class VisibilityManager:
 
         vision_sources = self._collect_vision_sources()
         if not vision_sources:
+            # ainda assim, atualiza o digest pra não deixar valor antigo enganoso
+            try:
+                setattr(self.planet, "visibility_version_sum", 0)
+            except Exception:
+                pass
             return
 
         for civ_id, sources in vision_sources.items():
@@ -166,3 +171,13 @@ class VisibilityManager:
                 if kind == "stack":
                     state.visible.add(source_tile)
                     state.explored.add(source_tile)
+
+        # --- Digest simples para cache/invalidação (economia/rotas) ---
+        # explored tende a crescer monotonicamente; a soma dos tamanhos é um proxy barato.
+        try:
+            total = 0
+            for st in self.states.values():
+                total += len(st.explored)
+            setattr(self.planet, "visibility_version_sum", int(total))
+        except Exception:
+            pass

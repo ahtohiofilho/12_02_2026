@@ -3,31 +3,39 @@ from __future__ import annotations
 
 import random
 import uuid
-import networkx as nx
 from typing import Optional
 
+import networkx as nx
+
 from config import CIV_CORES
-from config.civilization import CULTURAS  # <-- NOVO (ordem base das 24 culturas)
+from config.civilization import CULTURAS
+from core.commands.manager import CommandManager
 from core.diplomacy import DiplomacyMatrix, Relation
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
-from core.economy.market import MarketSystem
-from core.economy.production import process_production_queue, apply_province_income
+from core.economy.market_realistic import MarketSystemRealistic  # ✅ NOVO (mercado realista por FoW/bloqueio)
+from core.economy.production import apply_province_income, process_production_queue
 from core.economy.province_repo import ProvinceEconomyRepository
+from core.generation._geography import seed_from_planet_id, definir_geografia
 from core.production.repo import ProductionQueueRepository
 from core.stacks import StackRepository
 from core.turn_engine import TurnEngine
+from core.visibility import VisibilityManager
 from core.workforce.repo import WorkforceRepository
 from .civilization import Civilization, Province
-from .generation._geography import definir_geografia, seed_from_planet_id
 from .generation._polygons import dicionario_poligonos
-from core.commands.manager import CommandManager
-from core.visibility import VisibilityManager
+
+
+Tile = tuple[int, int]
 
 
 class Planet:
     """
     Representa um único objeto de planeta. A geração da estrutura complexa
     é orquestrada aqui, chamando módulos de geração dedicados.
+
+    Consolida:
+      - economia global com custos dirigidos por vendedor (FoW + diplomacia + bloqueio militar)
+      - rastreio de bloqueio militar por tile com atraso >= 1 turno (presente agora e no turno anterior)
     """
 
     def __init__(
@@ -44,20 +52,40 @@ class Planet:
         self.geography_seed: int = seed_from_planet_id(self.id)
 
         # NOVO: nomes de província usados no planeta (para unicidade)
-        # (o service de naming também consegue criar isso via setattr, mas é melhor explícito)
         self.used_province_names: set[str] = set()
+
+        # ============================================================
+        # Versões (cache / invalidação)
+        # ============================================================
+        # (Por enquanto você pode recalcular mercado todo turno; mesmo assim, é barato manter.)
+        self.economy_version: int = 0
+        self.diplomacy_version: int = 0
+        # digest simples de visibilidade (como explored tende a crescer monotonicamente, soma serve)
+        self.visibility_version_sum: int = 0
+
+        # ============================================================
+        # Trade blocking (militar) — estado por turno
+        # ============================================================
+        # tile -> {"land": set(civ_ids), "naval": set(civ_ids)}
+        self.trade_block_prev: dict[Tile, dict[str, set[int]]] = {}
+        self.trade_block_now: dict[Tile, dict[str, set[int]]] = {}
+        # civ_id -> tiles bloqueados para essa civ
+        self.trade_blocked_tiles_by_civ: dict[int, set[Tile]] = {}
+        self.trade_block_version: int = 0
 
         # --- Etapa 1: Geração Geométrica ---
         print(" -> Etapa 1: Gerando geometria dos polígonos...")
         polygons_map, centers_map = dicionario_poligonos(fator=self.fator)
         self.polygons_map = polygons_map
         self.centers_map = centers_map
+
         all_vertices_set: set[tuple[float, float, float]] = set()
         for vertices_array in self.polygons_map.values():
             for vertex_tuple in vertices_array:
                 rounded_vertex = tuple(round(float(coord), 8) for coord in vertex_tuple)
                 all_vertices_set.add(rounded_vertex)
         self.all_vertices = list(all_vertices_set)
+
         print(
             f" -> Geometria concluída: {len(self.polygons_map)} polígonos, "
             f"{len(self.all_vertices)} vértices únicos."
@@ -74,9 +102,9 @@ class Planet:
         )
 
         self.graph: nx.DiGraph = graph
-        self.capitals_players: list[tuple[int, int]] = list(capitals_players or [])
-        self.capitals_neutrals: list[tuple[int, int]] = list(capitals_neutrals or [])
-        self.capitals: list[tuple[int, int]] = self.capitals_players + self.capitals_neutrals
+        self.capitals_players: list[Tile] = list(capitals_players or [])
+        self.capitals_neutrals: list[Tile] = list(capitals_neutrals or [])
+        self.capitals: list[Tile] = self.capitals_players + self.capitals_neutrals
 
         print(f" -> Geografia concluída. Grafo com {self.graph.number_of_nodes()} nós.")
         print(
@@ -84,11 +112,11 @@ class Planet:
             f"{len(self.capitals_neutrals)} neutras = {len(self.capitals)} total."
         )
 
-        # --- Etapa 3: Criação das Civilizações (Lógica Corrigida) ---
+        # --- Etapa 3: Criação das Civilizações ---
         print(" -> Etapa 3: Preparando para criar civilizações...")
 
         # O mapa DEVE existir ANTES da criação das civilizações, pois elas o consultam.
-        self.provinces_by_tile: dict[tuple[int, int], "Province"] = {}
+        self.provinces_by_tile: dict[Tile, Province] = {}
         print("[Planet] Mapa de províncias por tile inicializado (vazio).")
 
         self.civilizations: list[Civilization] = []
@@ -101,15 +129,19 @@ class Planet:
                 self.provinces_by_tile[prov.tile_coords] = prov
         print(f"[Planet] Mapa de províncias por tile populado com {len(self.provinces_by_tile)} entradas.")
 
-        # --- Etapa 4: Runtime Systems (modular / plugável) ---
+        # --- Etapa 4: Runtime Systems ---
         self.diplomacy = DiplomacyMatrix()
-
-        # NOVO: diplomacia inicial (players em guerra entre si; neutras neutras)
         self._init_starting_diplomacy()
 
         self.stacks = StackRepository()
         self.econ_repo = ProvinceEconomyRepository()
-        self.economy = MarketSystem(world=PlanetEconomyAdapter(self, self.econ_repo))
+
+        # ✅ Mercado realista: custos dirigidos por vendedor (FoW + bloqueio + diplomacia)
+        self.economy = MarketSystemRealistic(
+            planet=self,
+            world=PlanetEconomyAdapter(self, self.econ_repo),
+        )
+
         self.production_queues = ProductionQueueRepository()
         self.workforce_repo = WorkforceRepository()
 
@@ -132,7 +164,15 @@ class Planet:
 
         self.visibility = VisibilityManager(self)
         self.visibility.update_all_civs()  # Calcula a visão inicial
+
+        # Inicializa bloqueio militar (turno 0 -> 1). No turno 1 ainda não haverá ">=1 turno estacionado".
+        self.update_military_block_state()
+
         print("\nObjeto Planeta criado e pronto para uso.")
+
+    # ============================================================
+    # Economia: produção / renda
+    # ============================================================
 
     def process_production(self) -> list[dict]:
         reports: list[dict] = []
@@ -140,7 +180,7 @@ class Planet:
         # ============================================================
         # 1) PRODUÇÃO DA FILA (gasta o saldo acumulado do turno que passou)
         # ============================================================
-        def add_unit_to_stack_fn(unit_key: str, tile: tuple[int, int]):
+        def add_unit_to_stack_fn(unit_key: str, tile: Tile):
             province = self.get_province(tile)
             if not province or not province.owner:
                 print(f"⚠️ Impossível produzir unidade em {tile}: província ou dono não encontrados.")
@@ -195,6 +235,8 @@ class Planet:
                 if ok:
                     reports.append({"tile": tile, "produced": "worker_detached"})
                     print(f"✅ [process_production] Worker destacado em {tile}.")
+                    # mudanças econômicas/produção -> invalida economia global
+                    self.economy_version += 1
                 else:
                     print(f"⚠️ [process_production] DETACH_WORKER cancelado em {tile}: workers insuficientes.")
                 # não incrementa i: o pop já avançou
@@ -212,17 +254,145 @@ class Planet:
 
             if (report.get("completed_items", 0) or 0) > 0 or (report.get("paid_total", 0.0) or 0.0) > 0:
                 reports.append(report)
+                # produção pode alterar workers/output -> invalida
+                self.economy_version += 1
 
         # ============================================================
         # 2) RECEITA DO TURNO (gera a grana que será gasta no PRÓXIMO turno)
         # ============================================================
         try:
             resultado = self.economy.calcular_equilibrio(forcar_recalculo=True)
-            income_reports = apply_province_income(self.econ_repo, resultado)
+            _income_reports = apply_province_income(self.econ_repo, resultado)
+            # receita altera treasury (mas não necessariamente oferta/demanda no seu modelo),
+            # então não incrementamos economy_version aqui por padrão.
         except Exception as e:
             print(f"⚠️ [Planet.process_production] Falha ao aplicar receita do turno: {e}")
 
         return reports
+
+    # ============================================================
+    # Trade blocking (militar) + passability por vendedor
+    # ============================================================
+
+    def update_military_block_state(self) -> None:
+        """
+        Atualiza bloqueio militar por tile com atraso >= 1 turno e por domínio:
+
+        - Unidades NAVAL (militares) bloqueiam tiles aquáticos (Coast/Sea/Ocean)
+        - Unidades LAND  (militares) bloqueiam tiles não aquáticos
+        - Unidades AIR não bloqueiam
+        - Unidades CIVILIAN não bloqueiam
+        - Só bloqueia inimigos se a stack militar estiver presente agora E no turno anterior
+        """
+        from config.unit_stats import get_unit_stats, UnitCategory
+
+        AQUATIC = {"Coast", "Sea", "Ocean"}
+
+        # Snapshot atual: tile -> {"land": set(civs), "naval": set(civs)}
+        now: dict[Tile, dict[str, set[int]]] = {}
+
+        for tile, uids in self.stacks.stack_uids_by_tile.items():
+            biome = self.graph.nodes.get(tile, {}).get("bioma", "")
+            is_aquatic = biome in AQUATIC
+
+            for uid in uids:
+                stack = self.stacks.get_stack(uid)
+                if not stack or stack.is_empty():
+                    continue
+
+                # Detecta se essa stack bloqueia (e em qual domínio, de acordo com o tile)
+                blocks_land = False
+                blocks_naval = False
+
+                for u in stack.units:
+                    st = get_unit_stats(u.unit_key)
+                    if not st or st.is_non_combat:
+                        continue
+
+                    if st.category == UnitCategory.LAND and not is_aquatic:
+                        blocks_land = True
+                    elif st.category == UnitCategory.NAVAL and is_aquatic:
+                        blocks_naval = True
+                    # AIR não bloqueia
+
+                if not (blocks_land or blocks_naval):
+                    continue
+
+                entry = now.setdefault(tile, {"land": set(), "naval": set()})
+                if blocks_land:
+                    entry["land"].add(int(stack.owner_id))
+                if blocks_naval:
+                    entry["naval"].add(int(stack.owner_id))
+
+        prev = self.trade_block_now
+        self.trade_block_prev = prev
+        self.trade_block_now = now
+
+        # Recalcula tiles bloqueados por civ (consulta rápida)
+        blocked_by_civ: dict[int, set[Tile]] = {int(c.id): set() for c in self.civilizations}
+
+        for tile, pres_now in now.items():
+            pres_prev = prev.get(tile, {"land": set(), "naval": set()})
+
+            # civs estacionadas >= 1 turno, por domínio
+            stationed = set(pres_now.get("land", set())) & set(pres_prev.get("land", set()))
+            stationed |= set(pres_now.get("naval", set())) & set(pres_prev.get("naval", set()))
+
+            if not stationed:
+                continue
+
+            for controller_id in stationed:
+                for civ in self.civilizations:
+                    a = int(civ.id)
+                    if a == controller_id:
+                        continue
+                    if self.diplomacy.relation(a, controller_id) == Relation.ENEMY:
+                        blocked_by_civ[a].add(tile)
+
+        if blocked_by_civ != self.trade_blocked_tiles_by_civ:
+            self.trade_blocked_tiles_by_civ = blocked_by_civ
+            self.trade_block_version += 1
+
+    def trade_passable_tiles_for_seller(self, seller_civ_id: int) -> set[Tile]:
+        """
+        Tiles passáveis para comércio (como VENDEDOR):
+          explored do vendedor
+          + tiles das próprias províncias (permanente)
+          - tiles de províncias inimigas
+          - tiles bloqueados por militar inimigo (>= 1 turno) (tile-level)
+        """
+        seller_civ_id = int(seller_civ_id)
+
+        # explored
+        explored = set(self.visibility.get_state(seller_civ_id).explored)
+
+        # garante: próprias províncias sempre são conhecidas e passáveis (exceto bloqueio militar)
+        for tile, prov in self.provinces_by_tile.items():
+            if prov.owner and int(prov.owner.id) == seller_civ_id:
+                explored.add(tile)
+
+        passable = set(explored)
+
+        # remove províncias inimigas (tile do mercado inimigo não pode ser usado)
+        for tile, prov in self.provinces_by_tile.items():
+            if not prov.owner:
+                continue
+            owner_id = int(prov.owner.id)
+            if owner_id == seller_civ_id:
+                continue
+            if self.diplomacy.relation(seller_civ_id, owner_id) == Relation.ENEMY:
+                passable.discard(tile)
+
+        # remove tiles bloqueados por militar inimigo (>= 1 turno)
+        blocked = self.trade_blocked_tiles_by_civ.get(seller_civ_id)
+        if blocked:
+            passable -= set(blocked)
+
+        return passable
+
+    # ============================================================
+    # Utilidades / bootstrap
+    # ============================================================
 
     @property
     def player_civ(self) -> Optional[Civilization]:
@@ -249,6 +419,9 @@ class Planet:
             )
             self.econ_repo.upsert(state)
 
+        # economia inicial pronta => versão
+        self.economy_version += 1
+
     def _create_initial_civilizations(self) -> None:
         """
         Cria civilizações na ordem:
@@ -257,11 +430,9 @@ class Planet:
 
         Mantém id=0 como "player humano" por convenção (primeiro player).
 
-        NOVO (cultura):
-          - Existem 24 culturas em config.civilization.CULTURAS
-          - Cada civ recebe 1 cultura sem repetir até completar as 24
-          - Se houver >24 civs, recomeça a rodada (idx % 24)
-          - Determinístico por planeta: embaralha a lista de culturas com seed do planeta
+        Cultura:
+          - 24 culturas em config.civilization.CULTURAS
+          - determinístico por planeta: embaralha a lista com seed do planeta
         """
         if not self.capitals_players and not self.capitals_neutrals:
             print("⚠️  AVISO: Nenhuma capital disponível para criar civilizações.")
@@ -272,7 +443,6 @@ class Planet:
         civ_names = list(CIV_CORES.keys())
         rng.shuffle(civ_names)
 
-        # NOVO: culturas determinísticas por planeta
         cultures = list(CULTURAS) if CULTURAS else ["English"]
         rng.shuffle(cultures)
 
@@ -281,8 +451,9 @@ class Planet:
                 return "English"
             return cultures[i % len(cultures)]
 
-        # players primeiro
         idx = 0
+
+        # players primeiro
         for capital_coords in self.capitals_players:
             if idx >= len(civ_names):
                 print("⚠️ AVISO: Sem nomes suficientes para todas as civs (players).")
@@ -299,7 +470,7 @@ class Planet:
                     color=civ_color,
                     capital_coords=capital_coords,
                     is_player=True,
-                    culture=culture_for_index(idx),  # <-- NOVO
+                    culture=culture_for_index(idx),
                 )
             )
             idx += 1
@@ -321,19 +492,18 @@ class Planet:
                     color=civ_color,
                     capital_coords=capital_coords,
                     is_player=False,
-                    culture=culture_for_index(idx),  # <-- NOVO
+                    culture=culture_for_index(idx),
                 )
             )
             idx += 1
 
     def _init_starting_diplomacy(self) -> None:
         """
-        Política inicial (como no antigo):
+        Política inicial:
           - Players começam em guerra entre si (ENEMY)
           - Neutras ficam NEUTRAL com todo mundo
         """
         players = [c for c in self.civilizations if getattr(c, "is_player", True)]
-        # Se você quiser: neutras aliadas entre si, etc., mude aqui.
 
         wars_declared = 0
         for i in range(len(players)):
@@ -342,9 +512,12 @@ class Planet:
                 wars_declared += 1
 
         if wars_declared:
+            self.diplomacy_version += 1
             print(f"⚔️ [Planet] {wars_declared} guerras declaradas entre players.")
 
     def _spawn_initial_stacks(self) -> None:
+        # OBS: seu unit_key correto parece ser "light_infantry" (não "infantry") em config.unit_stats.
+        # Mantive "infantry" porque estava no seu código original.
         for civ in self.civilizations:
             s = self.stacks.create_stack(owner_id=civ.id, tile=civ.capital_coords)
             self.stacks.add_unit_to_stack(s.uid, "infantry")
@@ -352,5 +525,5 @@ class Planet:
     def get_polygon_data(self, polygon_2d_coords):
         return self.graph.nodes.get(polygon_2d_coords)
 
-    def get_province(self, tile: tuple[int, int]) -> Optional["Province"]:
+    def get_province(self, tile: Tile) -> Optional[Province]:
         return self.provinces_by_tile.get(tile)

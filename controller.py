@@ -194,6 +194,18 @@ class Controller:
         # (2) Aplica na UI (SceneWidget.set_fow faz o trabalho)
         self.update_fow()
 
+        # (3) ✅ Inicializa bloqueio militar e mercado realista (para UI nascer coerente)
+        try:
+            self.game.update_military_block_state()
+        except Exception as e:
+            print(f"⚠️ Falha ao inicializar bloqueio militar: {e}")
+
+        try:
+            self.game.economy.invalidar_cache()
+            self.game.economy.calcular_equilibrio(forcar_recalculo=True)
+        except Exception as e:
+            print(f"⚠️ Falha ao calcular mercado inicial: {e}")
+
         if self.scene:
             self.scene.update()
 
@@ -265,17 +277,20 @@ class Controller:
             print("⚠️ Nenhum planeta ativo.")
             return
 
+        # 0) Envia ordens acumuladas para o TurnEngine
         cmd_count = self.game.command_manager.flush_to_engine()
         print(f"📋 {cmd_count} ordem(ns) submetida(s) ao TurnEngine.")
 
+        # 1) Produção/economia do turno (fila + renda do turno anterior)
+        #    (no seu Planet.process_production já chama economy.calcular_equilibrio(forcar_recalculo=True)
+        #     para aplicar renda do turno anterior)
         print("\n🏭 Processando produção e economia...")
         production_reports = self.game.process_production()
         if production_reports:
             for r in production_reports:
                 print(f"   -> Produzido: {r.get('produced')}")
 
-        self.game.economy.invalidar_cache()
-
+        # 2) Resolve movimentos/combates (isso pode mudar quais tiles estão ocupados por militar)
         print("\n⚔️ Resolvendo movimentos e combates...")
         turn_report = self.game.turn_engine.resolve_turn()
 
@@ -283,9 +298,16 @@ class Controller:
         print(f"   Ordens processadas: {turn_report.total_orders}")
         print(f"   Batalhas: {turn_report.total_battles}")
 
+        # 3) Avança comandos persistentes (UI/estado interno)
         self.game.command_manager.advance_persistent_commands()
 
-        # overlays/seleção
+        # 4) ✅ Atualiza bloqueio militar (precisa ser DEPOIS de movimentos/combates)
+        try:
+            self.game.update_military_block_state()
+        except Exception as e:
+            print(f"⚠️ Falha ao atualizar bloqueio militar: {e}")
+
+        # 5) Overlay de rota / seleção (com base no estado pós-turno)
         if self.selection.has_selection:
             cmd = self.game.command_manager.get_command(self.selection.selected_stack_uid)
             if cmd and cmd.remaining_path:
@@ -299,23 +321,31 @@ class Controller:
         if self.input_manager:
             self.input_manager.clear_hover_state()
 
-        # (1) Recalcula visão (regras centralizadas no VisibilityManager)
+        # 6) Recalcula FoW (explored/visible) e aplica na UI
         vis = getattr(self.game, "visibility", None)
         if vis is None:
             print("⚠️ game.visibility is None (skip FoW recompute)")
         else:
             vis.update_all_civs()
 
-        # (2) Aplica Fog of War na UI (sem recalcular aqui)
         self.update_fow()
 
+        # 7) ✅ Recalcula mercado global realista (para a UI refletir rotas/preços do novo estado)
+        #    - depende de explored (visibilidade)
+        #    - depende de bloqueio militar (trade_blocked_tiles_by_civ)
+        try:
+            self.game.economy.invalidar_cache()
+            self.game.economy.calcular_equilibrio(forcar_recalculo=True)
+        except Exception as e:
+            print(f"⚠️ Falha ao recalcular mercado pós-turno: {e}")
+
+        # 8) Atualizações de UI (painéis) e cena
         self._update_ui_post_turn()
 
         if not self.selection.has_selection:
             if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
                 self.window.sidebar.hide_selection_panel()
 
-        # Atualiza a cena/unidades
         if self.scene:
             if hasattr(self.scene, "update_units_data"):
                 self.scene.update_units_data(self.game)
