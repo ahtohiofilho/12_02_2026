@@ -94,11 +94,9 @@ class WorkforceTabWidget(QWidget):
             self.chk_auto_max.blockSignals(False)
             self.chk_auto_max.setEnabled(has_both)
 
-        if hasattr(self, "btn_optimize_now"):
-            self.btn_optimize_now.setEnabled(has_both)
-
-        # slider só faz sentido quando há ambos e auto está OFF
-        self.slider_allocation.setEnabled(has_both and (not auto))
+        # ✅ slider fica sempre interativo quando há ambos:
+        # mexer nele desliga o Auto (manual override)
+        self.slider_allocation.setEnabled(has_both)
 
         if auto and has_both and apply_optimize:
             self._optimize_allocation_max_revenue()
@@ -273,8 +271,6 @@ class WorkforceTabWidget(QWidget):
         # Controles de automação só fazem sentido quando há os dois recursos
         if hasattr(self, "chk_auto_max"):
             self.chk_auto_max.setVisible(has_both)
-        if hasattr(self, "btn_optimize_now"):
-            self.btn_optimize_now.setVisible(has_both)
 
     def _set_empty_state(self) -> None:
         self.btn_buy_worker.setEnabled(False)
@@ -525,24 +521,12 @@ class WorkforceTabWidget(QWidget):
         # --- Auto optimize row ---
         auto_row = QHBoxLayout()
 
-        self.chk_auto_max = QCheckBox("Auto (Max $)")
+        self.chk_auto_max = QCheckBox("Maximize Revenue")
         self.chk_auto_max.setToolTip("Automatically sets allocation to maximize revenue for this province.")
         self.chk_auto_max.toggled.connect(self._on_auto_toggled)
         auto_row.addWidget(self.chk_auto_max)
 
         auto_row.addStretch()
-
-        self.btn_optimize_now = QPushButton("Optimize now")
-        self.btn_optimize_now.setFixedWidth(120)
-        self.btn_optimize_now.clicked.connect(self._optimize_now_clicked)
-        self.btn_optimize_now.setStyleSheet("""
-            QPushButton { background-color: #2E7D32; border: none; border-radius: 4px;
-                         padding: 6px 10px; color: white; font-weight: bold; }
-            QPushButton:hover { background-color: #388E3C; }
-            QPushButton:pressed { background-color: #1B5E20; }
-            QPushButton:disabled { background-color: #333; color: #666; }
-        """)
-        auto_row.addWidget(self.btn_optimize_now)
 
         layout.addLayout(auto_row)
 
@@ -876,9 +860,11 @@ class WorkforceTabWidget(QWidget):
         if not self.facade:
             return
 
-        # ✅ manual override desliga o governor
+        # ✅ Se Auto (Max $) estiver ligado e o usuário mexer, permitir o override:
+        # desmarca o checkbox (isso dispara _on_auto_toggled e persiste no state/repo)
         if hasattr(self, "chk_auto_max") and self.chk_auto_max.isChecked():
-            self.chk_auto_max.setChecked(False)  # dispara _on_auto_toggled (persistindo no repo)
+            # evita reentrância/loop visual: desmarca e continua aplicando o valor do slider
+            self.chk_auto_max.setChecked(False)
 
         self._allocation_preference_pct = int(value)
         self._pending_value = int(value)
@@ -899,14 +885,6 @@ class WorkforceTabWidget(QWidget):
         if checked and has_both:
             self._optimize_allocation_max_revenue()
             self.update_display()
-
-    def _optimize_now_clicked(self) -> None:
-        if not self.facade:
-            return
-        if not (self._has_food and self._has_ore):
-            return
-        self._optimize_allocation_max_revenue()
-        self.update_display()
 
 
     def _apply_allocation_change(self) -> None:
