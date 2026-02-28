@@ -5,6 +5,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QGroupBox, QSlider,
     QProgressBar, QSizePolicy, QGridLayout, QPushButton,
     QScrollArea, QListWidget, QListWidgetItem, QAbstractItemView, QFrame,
+    QCheckBox
 )
 from PySide6.QtCore import Qt, Signal, QTimer
 from PySide6.QtGui import QFont, QColor
@@ -71,10 +72,37 @@ class WorkforceTabWidget(QWidget):
 
         self._update_biome_adaptation()
 
+        # ✅ aplica/mostra estado do governor (auto ON por default)
+        self._sync_auto_controls_from_state(apply_optimize=True)
+
         # Baseline da sessão (ao entrar/selecionar província)
         self._baseline_civ_revenue_total = self._calc_civ_total_revenue()
 
         self.update_display()
+
+    def _sync_auto_controls_from_state(self, *, apply_optimize: bool) -> None:
+        if not self.facade:
+            return
+
+        has_both = bool(self._has_food) and bool(self._has_ore)
+
+        auto = bool(self.facade.get_auto_max_revenue()) if hasattr(self.facade, "get_auto_max_revenue") else True
+
+        if hasattr(self, "chk_auto_max"):
+            self.chk_auto_max.blockSignals(True)
+            self.chk_auto_max.setChecked(auto)
+            self.chk_auto_max.blockSignals(False)
+            self.chk_auto_max.setEnabled(has_both)
+
+        if hasattr(self, "btn_optimize_now"):
+            self.btn_optimize_now.setEnabled(has_both)
+
+        # slider só faz sentido quando há ambos e auto está OFF
+        self.slider_allocation.setEnabled(has_both and (not auto))
+
+        if auto and has_both and apply_optimize:
+            self._optimize_allocation_max_revenue()
+
 
     def _calc_civ_total_revenue(self) -> float:
         if not self.facade:
@@ -241,6 +269,12 @@ class WorkforceTabWidget(QWidget):
         self.group_allocation.setVisible(has_any)
         self.group_output.setVisible(has_any)
         self.group_revenue.setVisible(has_any)
+
+        # Controles de automação só fazem sentido quando há os dois recursos
+        if hasattr(self, "chk_auto_max"):
+            self.chk_auto_max.setVisible(has_both)
+        if hasattr(self, "btn_optimize_now"):
+            self.btn_optimize_now.setVisible(has_both)
 
     def _set_empty_state(self) -> None:
         self.btn_buy_worker.setEnabled(False)
@@ -488,6 +522,30 @@ class WorkforceTabWidget(QWidget):
         layout.setContentsMargins(10, 15, 10, 10)
         layout.setSpacing(8)
 
+        # --- Auto optimize row ---
+        auto_row = QHBoxLayout()
+
+        self.chk_auto_max = QCheckBox("Auto (Max $)")
+        self.chk_auto_max.setToolTip("Automatically sets allocation to maximize revenue for this province.")
+        self.chk_auto_max.toggled.connect(self._on_auto_toggled)
+        auto_row.addWidget(self.chk_auto_max)
+
+        auto_row.addStretch()
+
+        self.btn_optimize_now = QPushButton("Optimize now")
+        self.btn_optimize_now.setFixedWidth(120)
+        self.btn_optimize_now.clicked.connect(self._optimize_now_clicked)
+        self.btn_optimize_now.setStyleSheet("""
+            QPushButton { background-color: #2E7D32; border: none; border-radius: 4px;
+                         padding: 6px 10px; color: white; font-weight: bold; }
+            QPushButton:hover { background-color: #388E3C; }
+            QPushButton:pressed { background-color: #1B5E20; }
+            QPushButton:disabled { background-color: #333; color: #666; }
+        """)
+        auto_row.addWidget(self.btn_optimize_now)
+
+        layout.addLayout(auto_row)
+
         slider_layout = QHBoxLayout()
         self.label_food_icon = QLabel("🌾")
         self.label_food_icon.setFont(QFont("Segoe UI", 14))
@@ -707,6 +765,58 @@ class WorkforceTabWidget(QWidget):
         self.btn_remove_selected.setEnabled(False)
         self.label_queue_status.setText("")
 
+    def _optimize_allocation_max_revenue(self) -> None:
+        if not self.facade:
+            return
+        if not (self._has_food and self._has_ore):
+            return
+
+        # cancela debounce pendente
+        self._update_timer.stop()
+        self._pending_value = None
+
+        planet = self.facade.planet
+        tile = self.facade.tile
+
+        def revenue_at(pref: float) -> float:
+            # set pref (isso recalcula produção + invalida cache)
+            self.facade.set_food_pref(pref)
+            r = planet.economy.calcular_equilibrio()
+            return float(r.get_receita_total(tile) or 0.0)
+
+        # 1) coarse
+        best_pct = 50
+        best_rev = -1e30
+        for pct in range(0, 101, 5):
+            rev = revenue_at(pct / 100.0)
+            if rev > best_rev + 1e-9:
+                best_rev = rev
+                best_pct = pct
+
+        # 2) refine around coarse best
+        lo = max(0, best_pct - 5)
+        hi = min(100, best_pct + 5)
+        for pct in range(lo, hi + 1):
+            rev = revenue_at(pct / 100.0)
+            if rev > best_rev + 1e-9:
+                best_rev = rev
+                best_pct = pct
+
+        best_pref = best_pct / 100.0
+        self.facade.set_food_pref(best_pref)
+
+        # Atualiza slider/progress sem disparar loop
+        self.slider_allocation.blockSignals(True)
+        self.slider_allocation.setValue(int(best_pct))
+        self.slider_allocation.blockSignals(False)
+
+        self.progress_food.setValue(int(best_pct))
+        self.progress_ore.setValue(100 - int(best_pct))
+
+        # mantém o estado interno coerente
+        self._allocation_preference_pct = int(best_pct)
+
+
     # ------------------------------------------------------------------ #
     #  Callbacks                                                           #
     # ------------------------------------------------------------------ #
@@ -765,11 +875,39 @@ class WorkforceTabWidget(QWidget):
     def _on_slider_changed(self, value: int) -> None:
         if not self.facade:
             return
+
+        # ✅ manual override desliga o governor
+        if hasattr(self, "chk_auto_max") and self.chk_auto_max.isChecked():
+            self.chk_auto_max.setChecked(False)  # dispara _on_auto_toggled (persistindo no repo)
+
         self._allocation_preference_pct = int(value)
         self._pending_value = int(value)
         self._update_timer.start()
         self.progress_food.setValue(int(value))
         self.progress_ore.setValue(100 - int(value))
+
+    def _on_auto_toggled(self, checked: bool) -> None:
+        if not self.facade:
+            return
+
+        if hasattr(self.facade, "set_auto_max_revenue"):
+            self.facade.set_auto_max_revenue(bool(checked))
+
+        has_both = bool(self._has_food) and bool(self._has_ore)
+        self.slider_allocation.setEnabled(has_both and (not checked))
+
+        if checked and has_both:
+            self._optimize_allocation_max_revenue()
+            self.update_display()
+
+    def _optimize_now_clicked(self) -> None:
+        if not self.facade:
+            return
+        if not (self._has_food and self._has_ore):
+            return
+        self._optimize_allocation_max_revenue()
+        self.update_display()
+
 
     def _apply_allocation_change(self) -> None:
         if self._pending_value is None or not self.facade:

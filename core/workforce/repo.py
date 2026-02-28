@@ -8,6 +8,10 @@ class WorkforceState:
     tile: Tile
     # preferência do usuário (0..1) para alimento; minério = 1 - food_pref
     food_pref: float = 0.5
+
+    # Governor local (default ON)
+    auto_max_revenue: bool = True
+
     # workers “móveis” estacionados neste tile (uids)
     mobile_worker_uids: list[str] = field(default_factory=list)
 

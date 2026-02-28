@@ -577,3 +577,13 @@ class ProvinceWorkforceFacade:
 
         # Nenhuma stack exclusiva de workers encontrada → cria nova
         return self.planet.stacks.create_stack(owner_id=owner_id, tile=tile)
+
+    # ------------------------------------------------------------------ #
+    #  Cálculo de receita                                                #
+    # ------------------------------------------------------------------ #
+
+    def get_auto_max_revenue(self) -> bool:
+        return bool(self.planet.workforce_repo.ensure(self.tile).auto_max_revenue)
+
+    def set_auto_max_revenue(self, v: bool) -> None:
+        self.planet.workforce_repo.ensure(self.tile).auto_max_revenue = bool(v)
