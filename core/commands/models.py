@@ -16,6 +16,7 @@ class CommandType(Enum):
     SPLIT = auto()        # futuro: dividir stack
     MERGE = auto()        # futuro: juntar stacks
     TRANSPORT = auto()    # futuro: embarcar/desembarcar
+    FOUND_PROVINCE = auto()
 
 
 class CommandStatus(Enum):

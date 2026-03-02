@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from config.gameplay import FOUND_PROVINCE_TURNS
 from core.commands.models import UnitCommand, CommandType, CommandStatus
 from core.commands.validator import CommandValidator, ValidationResult
 from core.stacks.repo import StackRepository
@@ -79,7 +80,7 @@ class CommandManager:
         return True, f"Comando registrado (custo total: {total_cost:.0f} turnos)", cmd
 
     def cancel_command(self, stack_uid: str) -> bool:
-        cmd = self._pending.pop(stack_uid, None)
+        cmd = self._pending.get(stack_uid)
         if cmd:
             cmd.status = CommandStatus.CANCELLED
             return True
@@ -167,11 +168,22 @@ class CommandManager:
     def advance_persistent_commands(self) -> None:
         """
         Chamado APÓS resolve_turn().
-        Recalcula rotas com filtro de território.
+
+        Regra de cancelamento (conforme combinado):
+          - Se o jogador cancelar, o comando fica marcado como CANCELLED
+            e SÓ é removido aqui (no avanço do turno), liberando a stack no turno seguinte.
+
+        FOUND_PROVINCE:
+          - não usa remaining_path
+          - usa cmd.extra: worker_uid, target_tile, turns_left
+          - se a stack sair do tile alvo, o comando é CANCELLED (e removido no próximo turno)
         """
+        from core.commands.models import CommandType, CommandStatus
+
         to_remove: list[str] = []
 
-        for uid, cmd in self._pending.items():
+        for uid, cmd in list(self._pending.items()):
+            # 1) Cancelados: removemos agora (libera para ordens no próximo turno)
             if cmd.status == CommandStatus.CANCELLED:
                 to_remove.append(uid)
                 continue
@@ -181,6 +193,52 @@ class CommandManager:
                 to_remove.append(uid)
                 continue
 
+            # ============================================================
+            # (A) FOUND_PROVINCE
+            # ============================================================
+            if cmd.command_type == CommandType.FOUND_PROVINCE:
+                worker_uid = cmd.extra.get("worker_uid")
+                target_tile = cmd.extra.get("target_tile")
+
+                if not worker_uid or not target_tile:
+                    cmd.status = CommandStatus.INVALID
+                    to_remove.append(uid)
+                    continue
+
+                target_tile = tuple(target_tile)
+
+                # Saiu do tile alvo -> cancela, mas NÃO remove agora.
+                # Ele será removido no próximo turno pelo bloco CANCELLED acima.
+                if stack.tile != target_tile:
+                    cmd.status = CommandStatus.CANCELLED
+                    continue
+
+                turns_left = int(cmd.extra.get("turns_left", 0))
+                if turns_left <= 0:
+                    turns_left = 1  # fallback defensivo p/ não "concluir instantâneo" por bug de estado
+
+                turns_left -= 1
+                cmd.extra["turns_left"] = turns_left
+
+                if turns_left > 0:
+                    cmd.status = CommandStatus.PENDING
+                    continue
+
+                # Concluiu: executa
+                from core.workforce.facade import ProvinceWorkforceFacade
+
+                ok = ProvinceWorkforceFacade.found_province(
+                    unit_uid=str(worker_uid),
+                    planet=self.planet,
+                )
+
+                cmd.status = CommandStatus.RESOLVED if ok else CommandStatus.INVALID
+                to_remove.append(uid)
+                continue
+
+            # ============================================================
+            # (B) MOVE (seu código atual)
+            # ============================================================
             rpath = cmd.remaining_path
             if not rpath:
                 to_remove.append(uid)
@@ -197,14 +255,11 @@ class CommandManager:
                 idx = rpath.index(current_tile)
                 cmd.remaining_path = rpath[idx:]
             else:
-                from core.commands.pathfinding import (
-                    find_path,
-                    allowed_biomes_for_stack,
-                )
+                from core.commands.pathfinding import find_path, allowed_biomes_for_stack
+
                 allowed = allowed_biomes_for_stack(self.graph, stack)
                 unit_keys = [u.unit_key for u in stack.units]
 
-                # Passa planet e owner_id no recálculo
                 new_path = find_path(
                     self.graph,
                     current_tile,
@@ -226,6 +281,56 @@ class CommandManager:
 
         for uid in to_remove:
             self._pending.pop(uid, None)
+
+    def issue_found_province_command(
+        self,
+        *,
+        stack_uid: str,
+        owner_civ_id: int,
+        planet,
+    ) -> tuple[bool, str, UnitCommand | None]:
+        stack = self.stacks.get_stack(stack_uid)
+        if stack is None or stack.is_empty():
+            return False, "Stack não existe ou está vazia.", None
+
+        # valida: stack tem worker? tile colonizável? tile sem província?
+        # Reaproveita sua regra existente:
+        from core.workforce.facade import ProvinceWorkforceFacade
+
+        # aqui você precisa do unit_uid do worker (found_province usa unit_uid)
+        worker_unit = next((u for u in stack.units if u.unit_key == "worker"), None)
+        if worker_unit is None:
+            return False, "É necessário um worker para fundar província.", None
+
+        ok, reason = ProvinceWorkforceFacade.can_found_province(worker_unit.uid, planet)
+        if not ok:
+            return False, reason, None
+
+        cmd = UnitCommand(
+            command_type=CommandType.FOUND_PROVINCE,
+            stack_uid=stack_uid,
+            owner_civ_id=owner_civ_id,
+            origin=stack.tile,
+            destination=stack.tile,  # fundação é “no lugar”
+            path=None,
+            remaining_path=None,
+            accumulated_budget=0,
+            status=CommandStatus.PENDING,
+            extra={
+                "worker_uid": worker_unit.uid,
+                "turns_total": int(FOUND_PROVINCE_TURNS),
+                "turns_left": int(FOUND_PROVINCE_TURNS),
+                "target_tile": stack.tile,
+            },
+        )
+
+        # um stack só pode ter 1 comando ativo (mesma regra do MOVE)
+        old = self._pending.get(stack_uid)
+        if old:
+            old.status = CommandStatus.CANCELLED
+
+        self._pending[stack_uid] = cmd
+        return True, f"Fundação agendada ({FOUND_PROVINCE_TURNS} turnos).", cmd
 
     def clear(self) -> None:
         self._pending.clear()

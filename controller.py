@@ -445,40 +445,53 @@ class Controller:
 
     def action_found_province(self, unit_uid: str) -> bool:
         """
-        Funda uma nova província no tile onde o worker móvel está.
-        Chamado quando o jogador seleciona um worker e clica em 'Fundar Província'.
+        NÃO funda imediatamente.
+        Enfileira um comando persistente de fundação para a stack do worker.
+        A execução acontece no avanço de turno (CommandManager.advance_persistent_commands),
+        respeitando a regra centralizada (ex.: config.gameplay.FOUND_PROVINCE_TURNS).
         """
         if not self.game:
             return False
 
-        from core.workforce.facade import ProvinceWorkforceFacade
+        civ = self.controlled_civ
+        if not civ:
+            return False
 
-        ok = ProvinceWorkforceFacade.found_province(
-            unit_uid=unit_uid,
+        # Descobre a stack do worker
+        stack_uid = self.game.stacks.unit_uid_to_stack_uid.get(unit_uid)
+        if not stack_uid:
+            print("❌ Worker não encontrado em nenhuma stack.")
+            return False
+
+        # Emite o comando (sem executar agora)
+        ok, msg, cmd = self.game.command_manager.issue_found_province_command(
+            stack_uid=stack_uid,
+            owner_civ_id=int(civ.id),
             planet=self.game,
         )
+        print(("✅ " if ok else "❌ ") + str(msg))
 
-        if ok:
-            # Worker sumiu do mapa → limpa seleção
-            self.selection.clear()
-            self._clear_route_overlay()
+        if not ok:
+            return False
 
-            if self.window and hasattr(self.window.sidebar, "hide_selection_panel"):
-                self.window.sidebar.hide_selection_panel()
+        # UX: você pode manter a seleção, ou limpar.
+        # Eu recomendo MANTER selecionado (para o jogador ver que a ordem ficou registrada),
+        # mas limpar overlay de rota (não faz sentido para fundação).
+        self._clear_route_overlay()
 
-            self.game.visibility.update_all_civs()
-            self.update_fow()
+        # Atualiza painéis (sem mexer em FoW/unidades ainda, porque nada mudou no mapa)
+        try:
+            if self.window and hasattr(self.window.sidebar, "update_units_views"):
+                self.window.sidebar.update_units_views()
+            elif self.window and hasattr(self.window.sidebar, "update_selection_panel"):
+                self.window.sidebar.update_selection_panel()
+        except Exception:
+            pass
 
-            # Atualiza painel de província se estiver aberto
-            self._update_ui_post_turn()
+        if self.scene:
+            self.scene.update()
 
-            if self.scene:
-                if hasattr(self.scene, "update_units_data"):
-                    self.scene.update_units_data(self.game)
-                else:
-                    self.scene.update()
-
-        return ok
+        return True
 
     # ----------------------------
     # Seleção de Stack

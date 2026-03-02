@@ -147,6 +147,43 @@ class TileUnitsRenderer:
             total_units = len(chosen_stack.units)
             center_vec = glm.vec3(center_3d[0], center_3d[1], center_3d[2])
 
+            # ------------------------------------------------------------
+            # ✅ FOUND_PROVINCE: a partir do turno seguinte, se a unidade
+            #    renderizada for o worker, troca sprite por founding_province
+            #
+            #    Importante: isso NÃO altera a lógica de escolha da stack nem
+            #    muda outras unidades. Só troca o sprite do worker.
+            # ------------------------------------------------------------
+            founding_active = False
+            try:
+                cmd_mgr = getattr(planet, "command_manager", None)
+                cmd = None
+
+                if cmd_mgr is not None:
+                    # Preferir um método público, se existir
+                    if hasattr(cmd_mgr, "get_command"):
+                        cmd = cmd_mgr.get_command(chosen_stack.uid)
+                    else:
+                        # Fallback: acesso direto ao dict (se for assim no seu projeto)
+                        pending = getattr(cmd_mgr, "_pending", None)
+                        if isinstance(pending, dict):
+                            cmd = pending.get(chosen_stack.uid)
+
+                if cmd is not None:
+                    from core.commands.models import CommandType, CommandStatus
+
+                    if (
+                            cmd.command_type == CommandType.FOUND_PROVINCE
+                            and cmd.status != CommandStatus.CANCELLED
+                    ):
+                        start_turn = int(cmd.extra.get("start_turn", -10 ** 9))
+                        current_turn = int(getattr(getattr(planet, "turn_engine", None), "turn_number", 0))
+
+                        # "a partir do turno seguinte"
+                        founding_active = (current_turn >= start_turn + 1)
+            except Exception:
+                founding_active = False
+
             for i, unit in enumerate(chosen_stack.units):
                 unit_key = getattr(unit, "unit_key", "DESCONHECIDO")
                 print(
@@ -161,6 +198,10 @@ class TileUnitsRenderer:
                     continue
 
                 sprite_key = getattr(stats, "sprite_key", unit_key)
+
+                # ✅ ÚNICA mudança por unidade: se for worker e estiver fundando, troca sprite
+                if founding_active and sprite_key == "worker":
+                    sprite_key = "founding_province"
 
                 # Calcula posição com spread se múltiplas unidades
                 if total_units > 1:
