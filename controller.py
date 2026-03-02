@@ -535,14 +535,22 @@ class Controller:
         if self.debug_mode:
             selectable_stacks = [s for s in stacks if not s.is_empty()]
         else:
-            selectable_stacks = [s for s in stacks if (not s.is_empty() and s.owner_id == civ.id)]
+            selectable_stacks = [
+                s for s in stacks if (not s.is_empty() and s.owner_id == civ.id)
+            ]
 
         if selectable_stacks:
             active_uid = None
+
+            # Mantém stack ativa anterior se o clique for no mesmo tile e ela ainda existir
             if self.selection.has_selection:
                 prev_uid = self.selection.selected_stack_uid
                 prev_stack = self.game.stacks.get_stack(prev_uid) if prev_uid else None
-                if prev_stack and prev_stack.tile == tile_coords and any(s.uid == prev_uid for s in selectable_stacks):
+                if (
+                        prev_stack
+                        and prev_stack.tile == tile_coords
+                        and any(s.uid == prev_uid for s in selectable_stacks)
+                ):
                     active_uid = prev_uid
 
             if active_uid is None:
@@ -561,11 +569,39 @@ class Controller:
             self.select_stack_by_uid(active_uid)
 
             province = self.game.get_province(tile_coords)
-            if province and self.window:
+
+            # ✅ Regra de UX:
+            # - padrão: abre Unit Command
+            # - com Shift: abre gerenciador da cidade (ProvinceDetail), se existir
+            mods = Qt.KeyboardModifiers()
+            try:
+                mods = Qt.KeyboardModifiers(int(Qt.QApplication.keyboardModifiers()))
+            except Exception:
+                # fallback: em alguns ambientes, use diretamente QtWidgets.QApplication
+                try:
+                    from PySide6.QtWidgets import QApplication
+                    mods = QApplication.keyboardModifiers()
+                except Exception:
+                    pass
+
+            shift_down = bool(mods & Qt.ShiftModifier)
+
+            if shift_down and province and self.window:
+                # Shift: prioriza província
                 self.window.sidebar._on_province_selected(province)
+
+                # (opcional) se Unit Command estiver aberto, fecha (revela a província)
+                if hasattr(self.window.sidebar, "hide_selection_panel"):
+                    self.window.sidebar.hide_selection_panel()
             else:
+                # Padrão: Unit Command por cima
+                # Se existir província, abre por baixo primeiro (para o Back revelar)
+                if province and self.window:
+                    self.window.sidebar._on_province_selected(province)
+
                 if self.window and hasattr(self.window.sidebar, "show_selection_panel"):
                     self.window.sidebar.show_selection_panel()
+
             return
 
         # sem stack
