@@ -3,8 +3,15 @@
 Painel lateral exibido quando o jogador seleciona uma stack no mapa.
 Mostra as unidades da stack, stats de movimento e comando pendente.
 Permite cancelar comando ou dar novo comando (via clique direito no mapa).
+
+✅ Melhorias:
+- Seletor "Stacks Here" agora mostra a BANDEIRA da civilização ao lado de cada stack.
+- Mantém reuso de widgets (não recria tudo sempre).
+- set_active_stack_uid funciona com a nova estrutura (row -> botão + label da bandeira).
 """
 from __future__ import annotations
+
+import os
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -12,7 +19,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem, QPushButton, QScrollArea,
 )
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QFont, QColor, QPixmap
 
 from config.unit_stats import get_unit_stats
 from core.commands.pathfinding import max_movement_for_stack, movement_budget_for_stack
@@ -24,6 +31,7 @@ from ui.province.military_ui import (
     CATEGORY_ICONS,
     get_unit_category,
 )
+from core.diplomacy import Relation
 
 
 class SelectionPanel(QWidget):
@@ -51,7 +59,8 @@ class SelectionPanel(QWidget):
         self.controller = controller
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        self._stack_buttons_by_uid: dict[str, QPushButton] = {}
+        # uid -> (row_widget, btn, flag_label)
+        self._stack_rows_by_uid: dict[str, tuple[QWidget, QPushButton, QLabel]] = {}
         self._active_stack_uid: str | None = None
         self._tile_coords_for_stack_list = None
 
@@ -122,7 +131,7 @@ class SelectionPanel(QWidget):
         scroll_layout.addWidget(group_location)
 
         # ----------------------------------------------------------------
-        # ✅ NOVO: Stacks no tile (selector) — embutido no painel existente
+        # Stacks no tile (selector)
         # ----------------------------------------------------------------
         self.group_tile_stacks = QGroupBox("🧩 Stacks Here")
         self.group_tile_stacks.setStyleSheet(self._group_style("#FFC107"))
@@ -135,12 +144,10 @@ class SelectionPanel(QWidget):
         self.label_tile_stacks_hint.setWordWrap(True)
         tile_stacks_layout.addWidget(self.label_tile_stacks_hint)
 
-        # Layout onde os botões checkáveis serão inseridos/reusados
         self.stacks_layout = QVBoxLayout()
         self.stacks_layout.setSpacing(6)
         tile_stacks_layout.addLayout(self.stacks_layout)
 
-        # esconde por padrão; você vai mostrar em set_tile_stacks(...) quando fizer sentido
         self.group_tile_stacks.setVisible(False)
         scroll_layout.addWidget(self.group_tile_stacks)
 
@@ -156,7 +163,6 @@ class SelectionPanel(QWidget):
         units_layout.addWidget(self.label_unit_count)
 
         self.unit_list = QListWidget()
-        self.unit_list.setMaximumHeight(200)
         self.unit_list.setSelectionMode(QListWidget.NoSelection)
         self.unit_list.setStyleSheet("""
             QListWidget {
@@ -199,7 +205,7 @@ class SelectionPanel(QWidget):
 
         scroll_layout.addWidget(group_stats)
 
-        # --- Worker Actions (visível apenas para stacks exclusivas de workers) ---
+        # --- Worker Actions ---
         self.group_worker = QGroupBox("⚒️ Worker Actions")
         self.group_worker.setStyleSheet(self._group_style("#9E9E9E"))
         worker_layout = QVBoxLayout(self.group_worker)
@@ -245,7 +251,7 @@ class SelectionPanel(QWidget):
         self.label_worker_action_status.setStyleSheet("color: #888; font-size: 11px;")
         worker_layout.addWidget(self.label_worker_action_status)
 
-        self.group_worker.setVisible(False)  # escondido por padrão
+        self.group_worker.setVisible(False)
         scroll_layout.addWidget(self.group_worker)
 
         # --- Pending Command ---
@@ -340,22 +346,21 @@ class SelectionPanel(QWidget):
         layout.addWidget(scroll, 1)
 
     # ================================================================
-    # PUBLIC: update from controller state
+    # PUBLIC: tile stacks selector (with flags)
     # ================================================================
 
     def set_tile_stacks(
-            self,
-            tile_coords,
-            stacks,
-            active_stack_uid: str | None,
-            controlled_civ_id: int,
+        self,
+        tile_coords,
+        stacks,
+        active_stack_uid: str | None,
+        controlled_civ_id: int,
     ):
         """
         Atualiza a lista de stacks no tile SEM recriar widgets desnecessariamente.
-        Cria botões novos só quando aparecem novas stacks; remove quando somem.
-        Mostra “Stack ativa” mesmo quando há apenas 1 stack.
+        Cada stack é exibida como:
+          [bandeira civ] [botão checkável com texto]
         """
-        # guarda contexto
         self._tile_coords_for_stack_list = tile_coords
 
         # 0 stacks: esconde e limpa
@@ -380,27 +385,60 @@ class SelectionPanel(QWidget):
         new_uids = [s.uid for s in stacks]
         new_uid_set = set(new_uids)
 
-        # remove botões que não existem mais
-        for uid in list(self._stack_buttons_by_uid.keys()):
-            if uid not in new_uid_set:
-                btn = self._stack_buttons_by_uid.pop(uid)
-                btn.setParent(None)
-                btn.deleteLater()
+        game = getattr(self.controller, "game", None)
+        planet_id = str(getattr(game, "id", "") or "") if game else ""
 
-        # cria/atualiza botões (reusando quando possível)
+        # remove rows que não existem mais
+        for uid in list(self._stack_rows_by_uid.keys()):
+            if uid not in new_uid_set:
+                row_widget, btn, flag_label = self._stack_rows_by_uid.pop(uid)
+                row_widget.setParent(None)
+                row_widget.deleteLater()
+
+        # cria/atualiza rows (reusando quando possível)
         for s in stacks:
-            btn = self._stack_buttons_by_uid.get(s.uid)
-            if btn is None:
-                btn = QPushButton(self._format_stack_label(s, controlled_civ_id))
+            row = self._stack_rows_by_uid.get(s.uid)
+
+            # civ dona (para bandeira)
+            owner_civ = None
+            if game:
+                owner_civ = next(
+                    (c for c in getattr(game, "civilizations", []) if c.id == s.owner_id),
+                    None,
+                )
+
+            text = self._format_stack_label(s, controlled_civ_id)
+
+            if row is None:
+                # row widget
+                row_widget = QFrame()
+                row_widget.setStyleSheet("QFrame { background-color: transparent; border: none; }")
+
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.setSpacing(8)
+
+                # bandeira
+                flag_label = QLabel()
+                flag_label.setFixedSize(24, 15)
+                flag_label.setStyleSheet("border: 1px solid #555; border-radius: 2px;")
+                row_layout.addWidget(flag_label, 0, Qt.AlignVCenter)
+
+                # botão
+                btn = QPushButton(text)
                 btn.setCheckable(True)
                 btn.setStyleSheet(self._stack_button_style())
-                btn.clicked.connect(
-                    lambda _=False, uid=s.uid: self.stack_selected.emit(uid)
-                )
-                self._stack_buttons_by_uid[s.uid] = btn
-                self.stacks_layout.addWidget(btn)
+                btn.clicked.connect(lambda _=False, uid=s.uid: self.stack_selected.emit(uid))
+                row_layout.addWidget(btn, 1)
+
+                self._stack_rows_by_uid[s.uid] = (row_widget, btn, flag_label)
+                self.stacks_layout.addWidget(row_widget)
             else:
-                btn.setText(self._format_stack_label(s, controlled_civ_id))
+                row_widget, btn, flag_label = row
+                btn.setText(text)
+
+            # atualiza pixmap da bandeira (sempre)
+            flag_label.setPixmap(self._get_flag_pixmap_for_civ(owner_civ, planet_id, size=(24, 15)))
 
         # garante highlight consistente (sem disparar signals)
         self.set_active_stack_uid(active_stack_uid)
@@ -408,10 +446,14 @@ class SelectionPanel(QWidget):
     def set_active_stack_uid(self, active_stack_uid: str | None):
         """Só muda checked/highlight nos botões existentes."""
         self._active_stack_uid = active_stack_uid
-        for uid, btn in self._stack_buttons_by_uid.items():
+        for uid, (row_widget, btn, flag_label) in self._stack_rows_by_uid.items():
             btn.blockSignals(True)
             btn.setChecked(uid == active_stack_uid)
             btn.blockSignals(False)
+
+    # ================================================================
+    # PUBLIC: update from controller state
+    # ================================================================
 
     def update_from_selection(self, controller):
         """
@@ -474,6 +516,8 @@ class SelectionPanel(QWidget):
             item = QListWidgetItem(text)
             item.setForeground(QColor(color))
             self.unit_list.addItem(item)
+
+        self._fit_unit_list_height(max_height=220)
 
         # --- Stats ---
         mov = max_movement_for_stack(stack)
@@ -545,35 +589,26 @@ class SelectionPanel(QWidget):
             self.label_no_command.setVisible(True)
             self.btn_cancel_command.setVisible(False)
 
-        # ✅ Mantém highlight consistente quando o painel atualiza
-        # (não reconstrói lista; só marca o botão checkado se o grupo estiver visível)
-        if hasattr(self, "group_tile_stacks") and self.group_tile_stacks.isVisible():
-            if hasattr(self, "set_active_stack_uid"):
-                self.set_active_stack_uid(stack.uid)
+        # mantém highlight consistente quando o painel atualiza
+        if self.group_tile_stacks.isVisible():
+            self.set_active_stack_uid(stack.uid)
 
     # ================================================================
     # WORKER ACTIONS HELPERS
     # ================================================================
 
     def _update_worker_actions(self, stack, province, game) -> None:
-        """
-        Avalia e atualiza botões Fundar Província e Reintegrar Worker.
-        Chamado apenas quando is_worker_stack=True.
-        """
         from core.workforce.facade import ProvinceWorkforceFacade
 
         tile = stack.tile
-        # Pega o primeiro worker da stack (invariante: todos são workers)
         first_worker_uid = stack.units[0].uid
         n_workers = len(stack.units)
 
-        # ── Info contextual ──
         prov_name = province.name if province else "wilderness"
         self.label_worker_info.setText(
             f"{n_workers} worker(s) at {tile} — {prov_name}"
         )
 
-        # ── Fundar Província ──
         can_found, found_reason = ProvinceWorkforceFacade.can_found_province(
             first_worker_uid, game
         )
@@ -583,7 +618,6 @@ class SelectionPanel(QWidget):
             f"{'✅ Available' if can_found else f'❌ {found_reason}'}"
         )
 
-        # ── Reintegrar Worker ──
         if province is not None:
             can_reattach, reattach_reason = ProvinceWorkforceFacade.can_reattach_worker(
                 first_worker_uid, province, game
@@ -616,7 +650,6 @@ class SelectionPanel(QWidget):
         if not stack or stack.is_empty():
             return
 
-        # Usa o primeiro worker da stack (stack exclusiva de workers)
         first_worker_uid = stack.units[0].uid
         ok = ctrl.action_found_province(first_worker_uid)
 
@@ -625,7 +658,6 @@ class SelectionPanel(QWidget):
             self.label_worker_action_status.setStyleSheet(
                 "color: #4CAF50; font-size: 11px;"
             )
-            # Controller já limpou a seleção — painel será fechado pelo Sidebar
         else:
             self.label_worker_action_status.setText("❌ Cannot found province here.")
             self.label_worker_action_status.setStyleSheet(
@@ -647,9 +679,7 @@ class SelectionPanel(QWidget):
 
         province = game.get_province(stack.tile)
         if not province:
-            self.label_worker_action_status.setText(
-                "❌ No province at this tile."
-            )
+            self.label_worker_action_status.setText("❌ No province at this tile.")
             self.label_worker_action_status.setStyleSheet(
                 "color: #F44336; font-size: 11px;"
             )
@@ -680,7 +710,6 @@ class SelectionPanel(QWidget):
         self.label_tile_owner.setText("Owner: —")
         self.label_tile_owner.setStyleSheet("color: #4CAF50;")
 
-        # Limpa/esconde seletor de stacks do tile
         self.group_tile_stacks.setVisible(False)
         self.label_tile_stacks_hint.setText("—")
         self._clear_stack_buttons()
@@ -689,6 +718,7 @@ class SelectionPanel(QWidget):
 
         self.label_unit_count.setText("0 units")
         self.unit_list.clear()
+        self._fit_unit_list_height(max_height=220)
         self.label_movement.setText("Movement: —")
         self.label_budget.setText("Budget: —")
         self.label_slowest.setText("")
@@ -729,13 +759,12 @@ class SelectionPanel(QWidget):
         """
 
     def _clear_stack_buttons(self):
-        for uid, btn in list(self._stack_buttons_by_uid.items()):
-            self._stack_buttons_by_uid.pop(uid, None)
-            btn.setParent(None)
-            btn.deleteLater()
+        for uid, (row_widget, btn, flag_label) in list(self._stack_rows_by_uid.items()):
+            self._stack_rows_by_uid.pop(uid, None)
+            row_widget.setParent(None)
+            row_widget.deleteLater()
 
     def _stack_button_style(self) -> str:
-        # checked = highlight
         return """
             QPushButton {
                 text-align: left;
@@ -758,8 +787,104 @@ class SelectionPanel(QWidget):
         """
 
     def _format_stack_label(self, stack, controlled_civ_id: int) -> str:
-        # deixe simples e útil
+        owner_name = f"Civ {getattr(stack, 'owner_id', '?')}"
+
+        game = getattr(self.controller, "game", None)
+        if game:
+            civ = next(
+                (c for c in getattr(game, "civilizations", []) if c.id == stack.owner_id),
+                None,
+            )
+            if civ:
+                owner_name = civ.name
+
+        rel_tag = ""
+        if game and getattr(stack, "owner_id", None) is not None:
+            if stack.owner_id == controlled_civ_id:
+                rel_tag = "YOU"
+            else:
+                rel = game.diplomacy.relation(controlled_civ_id, stack.owner_id)
+                if rel == Relation.ALLY:
+                    rel_tag = "ALLY"
+                elif rel == Relation.ENEMY:
+                    rel_tag = "ENEMY"
+                else:
+                    rel_tag = "NEUTRAL"
+
         units = getattr(stack, "units", []) or []
         unit_keys = [u.unit_key for u in units]
         summary = ", ".join(unit_keys) if unit_keys else "—"
-        return f"{stack.uid[:8]} • {len(units)} unit(s): {summary}"
+
+        owner_part = owner_name if not rel_tag else f"{owner_name} [{rel_tag}]"
+        return f"{stack.uid[:8]} • {owner_part} • {len(units)}: {summary}"
+
+    # ------------------------------------------------
+    # Flags helper
+    # ------------------------------------------------
+    def _get_flag_pixmap_for_civ(self, civ, planet_id: str, size=(24, 15)) -> QPixmap:
+        """
+        Carrega assets/worlds/<planet_id>/flags/<civ.name>.png.
+        Se não existir, cria um retângulo com a cor da civ.
+        """
+        def solid(rgb):
+            px = QPixmap(size[0], size[1])
+            if rgb and isinstance(rgb, (tuple, list)) and len(rgb) == 3:
+                r, g, b = rgb
+                px.fill(QColor(r, g, b))
+            else:
+                px.fill(QColor(120, 120, 120))
+            return px
+
+        if not civ:
+            return solid(None)
+
+        flag_path = os.path.join(
+            "assets", "worlds", str(planet_id), "flags", f"{civ.name}.png"
+        )
+        if os.path.isfile(flag_path):
+            px = QPixmap(flag_path)
+            if not px.isNull():
+                return px.scaled(
+                    size[0], size[1], Qt.KeepAspectRatio, Qt.SmoothTransformation
+                )
+
+        return solid(getattr(civ, "color", None))
+
+    # Helper de ajuste do tamanho do widget da lista de unidades da stack
+
+    def _unit_list_content_height(self) -> int:
+        """
+        Altura ideal do QListWidget para mostrar todos os itens sem scroll,
+        somando header interno + bordas. Funciona bem com poucos itens.
+        """
+        # altura de cada item
+        total = 0
+        for i in range(self.unit_list.count()):
+            total += self.unit_list.sizeHintForRow(i)
+
+        # alguns estilos retornam -1 quando ainda não calculou
+        if total <= 0:
+            # fallback: 1 linha
+            total = max(1, self.unit_list.count()) * max(22, self.unit_list.fontMetrics().height() + 10)
+
+        # bordas + margens internas
+        total += 2 * self.unit_list.frameWidth()
+        total += self.unit_list.contentsMargins().top() + self.unit_list.contentsMargins().bottom()
+
+        # pequena folga pra evitar “corte” no último item com alguns estilos
+        total += 4
+        return total
+
+    def _fit_unit_list_height(self, *, max_height: int = 220) -> None:
+        """
+        Ajusta a altura do QListWidget ao conteúdo (até max_height).
+        Se passar do teto, permite scroll.
+        """
+        h = self._unit_list_content_height()
+
+        # altura mínima quando vazio (evita ficar gigante)
+        if self.unit_list.count() == 0:
+            self.unit_list.setFixedHeight(40)
+            return
+
+        self.unit_list.setFixedHeight(min(h, max_height))

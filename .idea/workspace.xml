@@ -4,15 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Melhorei a aba Workforce no tocante ao slider de alocação.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Sistema de batalha funcional.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/combat/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/models.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/combat/resolver.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/resolver.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/combat/tile_battle.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/combat/tile_battle.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/stack_instance.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/stack_instance.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/stacks/repo.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/stacks/repo.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/turn_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/turn_engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/selection_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/selection_panel.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -403,7 +397,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772312640631</updated>
     </task>
-    <option name="localTasksCounter" value="41" />
+    <task id="LOCAL-00041" summary="Sistema de batalha funcional.">
+      <option name="closed" value="true" />
+      <created>1772478230805</created>
+      <option name="number" value="00041" />
+      <option name="presentableId" value="LOCAL-00041" />
+      <option name="project" value="LOCAL" />
+      <updated>1772478230805</updated>
+    </task>
+    <option name="localTasksCounter" value="42" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -418,7 +420,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Modifiquei para que neutras, também, não spawnem adjacentes a outras capitais." />
     <MESSAGE value="As rotas estão sendo renderizadas normalmente" />
     <MESSAGE value="Corrigi a posição inicial da câmera." />
     <MESSAGE value="Implementei o tesouro da província." />
@@ -443,6 +444,7 @@
     <MESSAGE value="Nomes das províncias finalmente incluído no novo projeto." />
     <MESSAGE value="Incluí o FoW no sistema econômico." />
     <MESSAGE value="Melhorei a aba Workforce no tocante ao slider de alocação." />
-    <option name="LAST_COMMIT_MESSAGE" value="Melhorei a aba Workforce no tocante ao slider de alocação." />
+    <MESSAGE value="Sistema de batalha funcional." />
+    <option name="LAST_COMMIT_MESSAGE" value="Sistema de batalha funcional." />
   </component>
 </project>
