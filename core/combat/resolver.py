@@ -79,6 +79,26 @@ class CombatResolver:
         debug["effective"] = {"attacker": a_eff, "defender": d_eff}
         return a_eff, d_eff, debug
 
+    # ─────────────────────────────────────────────────────────────
+    # NOVO: win_probability (necessário pro utility do v2.6)
+    # ─────────────────────────────────────────────────────────────
+    def win_probability(
+        self,
+        attacker: CombatUnit,
+        defender: CombatUnit,
+        ctx: CombatContext | None = None,
+    ) -> float:
+        """
+        Retorna P(attacker vencer) SEM rolar RNG.
+        Usado pelo tile battle v2.6 (utility).
+        """
+        ctx = ctx or CombatContext()
+        a_eff, d_eff, _ = self._effective_efficacy(attacker, defender, ctx)
+
+        total = a_eff + d_eff
+        p = 0.5 if total <= 0.0 else (a_eff / total)
+        return _clamp01(float(p))
+
     def odds(
         self,
         attacker: CombatUnit,

@@ -153,6 +153,7 @@ class Planet:
         self.turn_engine = TurnEngine(
             stacks=self.stacks,
             diplomacy=self.diplomacy,
+            biome_at=lambda t: self.graph.nodes.get(t, {}).get("bioma"),
         )
 
         self.command_manager = CommandManager(

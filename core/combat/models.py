@@ -1,23 +1,19 @@
+# core/combat/models.py
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
 
-from config.unit_stats import UnitStats
+from config.unit_stats import UnitStats, UnitCategory  # <-- add UnitCategory
 
 
 @dataclass(frozen=True, slots=True)
 class CombatUnit:
-    """
-    Unidade no contexto de combate.
-    - efficacy/cost: nomes padronizados em inglês (core)
-    - key: referencia sua UNIT_STATS (ex.: "light_infantry", "mbt")
-    """
     key: str
     name: str
     efficacy: float
     cost: float
-    category: str | None = None
+    category: UnitCategory | None = None  # <-- era str | None
     tags: frozenset[str] = field(default_factory=frozenset)
     is_non_combat: bool = False
     extra: dict[str, Any] = field(default_factory=dict)
@@ -29,17 +25,8 @@ def combat_unit_from_stats(
     *,
     extra: dict[str, Any] | None = None,
 ) -> CombatUnit:
-    """
-    Converte UnitStats (config) -> CombatUnit (runtime de combate).
-
-    IMPORTANTES:
-    - efficacy aqui é BASE (sem vantagem). A vantagem entra via modifiers.
-    - is_non_combat é respeitado pelo CombatResolver (zera eficácia efetiva).
-    """
     tags: set[str] = set()
 
-    if stats.long_range:
-        tags.add("long_range")
     if stats.can_transport:
         tags.add("transport")
 
@@ -48,7 +35,7 @@ def combat_unit_from_stats(
         name=stats.name,
         efficacy=float(stats.eficacia),
         cost=float(stats.cost),
-        category=stats.category.name,  # "LAND" / "AIR" / "NAVAL" / "CIVILIAN"
+        category=stats.category,  # <-- era stats.category.name
         tags=frozenset(tags),
         is_non_combat=bool(stats.is_non_combat),
         extra=extra or {},
