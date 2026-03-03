@@ -116,7 +116,15 @@ class Controller:
     # Fog of War
     # ----------------------------
     def update_fow(self) -> None:
-        """Aplica (na UI) o estado de Fog of War já calculado para a civ controlada."""
+        """
+        Aplica (na UI) o estado de Fog of War já calculado para a civ controlada.
+
+        Consolidação:
+          - Mantém o guardrail de não aplicar se faltar game/scene/grafo/fachada.
+          - Suporta debug_fow_reveal_all.
+          - NOVO: compõe a visibilidade com tiles de rotas comerciais ativas (lógica do mercado),
+            enquanto a rota estiver ativa (não depende do overlay).
+        """
         if not self.game or not self.scene:
             return
 
@@ -144,8 +152,17 @@ class Controller:
         else:
             civ_id = int(self.controlled_civ_id)
             state = vis.get_state(civ_id)
-            explored = state.explored
-            visible = state.visible
+
+            explored = set(getattr(state, "explored", set()) or ())
+            visible = set(getattr(state, "visible", set()) or ())
+
+            # NOVO: route-visibility persistente enquanto rota comercial estiver ativa
+            trade_tiles_by_civ = getattr(self.game, "trade_route_tiles_by_civ", None) or {}
+            trade_tiles = set(trade_tiles_by_civ.get(civ_id, set()) or ())
+
+            # UX: torne visível (1.0) e também explorado (evita voltar a "desconhecido" ao perder visão normal)
+            visible |= trade_tiles
+            explored |= trade_tiles
 
         set_fow(explored, visible)
 
@@ -203,11 +220,15 @@ class Controller:
         except Exception as e:
             print(f"⚠️ Falha ao inicializar bloqueio militar: {e}")
 
+        # (4) ✅ Mercado inicial -> rotas comerciais ativas -> reaplica FoW
         try:
             self.game.economy.invalidar_cache()
             self.game.economy.calcular_equilibrio(forcar_recalculo=True)
+            self.game.recompute_trade_route_visibility()
         except Exception as e:
             print(f"⚠️ Falha ao calcular mercado inicial: {e}")
+
+        self.update_fow()
 
         if self.scene:
             self.scene.update()
@@ -215,14 +236,17 @@ class Controller:
     # ----------------------------
     # Rotas (overlay)
     # ----------------------------
-    def _set_route_overlay(self, path_tiles):
+    def _set_route_overlay(self, path_tiles) -> None:
         if not self.scene:
             return
+
+        # apenas desenha overlay
         if hasattr(self.scene, "set_route_path"):
             self.scene.set_route_path(path_tiles)
         else:
             if hasattr(self.scene, "planet_renderer"):
                 self.scene.planet_renderer.set_route_path(path_tiles)
+
         self.scene.update()
 
     def _clear_route_overlay(self):
@@ -311,6 +335,7 @@ class Controller:
             print(f"⚠️ Falha ao atualizar bloqueio militar: {e}")
 
         # 5) Overlay de rota / seleção (com base no estado pós-turno)
+        #    IMPORTANTE: não deve afetar FoW (rota persistente é só a COMERCIAL)
         if self.selection.has_selection:
             cmd = self.game.command_manager.get_command(self.selection.selected_stack_uid)
             if cmd and cmd.remaining_path:
@@ -324,21 +349,26 @@ class Controller:
         if self.input_manager:
             self.input_manager.clear_hover_state()
 
-        # 6) Recalcula FoW (explored/visible) e aplica na UI
+        # 6) Recalcula FoW base (VisibilityManager)
         vis = getattr(self.game, "visibility", None)
         if vis is None:
             print("⚠️ game.visibility is None (skip FoW recompute)")
         else:
             vis.update_all_civs()
 
-        self.update_fow()
-
-        # 7) ✅ Recalcula mercado global realista ...
+        # 7) ✅ Mercado do turno -> recalcula rotas comerciais ativas -> aplica FoW (comércio "acende")
         try:
             self.game.economy.invalidar_cache()
             self.game.economy.calcular_equilibrio(forcar_recalculo=True)
+
+            # NOVO: tiles de rotas comerciais ativas (lógica do mercado)
+            if hasattr(self.game, "recompute_trade_route_visibility"):
+                self.game.recompute_trade_route_visibility()
         except Exception as e:
             print(f"⚠️ Falha ao recalcular mercado pós-turno: {e}")
+
+        # Agora sim aplica na UI (update_fow faz o OR com trade_route_tiles_by_civ)
+        self.update_fow()
 
         # ✅ (7b) força refresh da TradeTab (sem depender do restante do painel)
         def _refresh_trade_if_open():
@@ -393,9 +423,29 @@ class Controller:
             except Exception as e:
                 print(f"⚠️ Falha ao atualizar painel: {e}")
 
-    def set_hover_trade_route(self, path_tiles: Sequence[Tuple[int, int]]) -> None:
-        if self.scene:
-            self.scene.set_route_path(path_tiles)
+    def set_hover_trade_route(self, path_tiles) -> None:
+        """
+        Hover de rota comercial (UI): apenas desenha o overlay da rota.
+
+        Importante:
+          - NÃO faz "route reveal" aqui. A visibilidade persistente deve vir da lógica do turno
+            (market -> game.trade_route_tiles_by_civ -> update_fow()).
+          - Normaliza tiles para (int,int), pois às vezes chegam como [x,y] (listas), que não são hashable.
+        """
+        if not self.scene:
+            return
+
+        # normaliza (aceita tuple/list)
+        normalized: list[tuple[int, int]] | None = None
+        if path_tiles:
+            normalized = []
+            for t in path_tiles:
+                if isinstance(t, (list, tuple)) and len(t) >= 2:
+                    normalized.append((int(t[0]), int(t[1])))
+            if not normalized:
+                normalized = None
+
+        self.scene.set_route_path(normalized)
 
     def clear_hover_trade_route(self) -> None:
         self.set_hover_trade_route(None)
@@ -849,3 +899,12 @@ class Controller:
 
         if self.scene:
             self.scene.update()
+
+    def _normalize_tiles(self, tiles) -> list[tuple[int, int]]:
+        if not tiles:
+            return []
+        out: list[tuple[int, int]] = []
+        for t in tiles:
+            if isinstance(t, (list, tuple)) and len(t) >= 2:
+                out.append((int(t[0]), int(t[1])))
+        return out

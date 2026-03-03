@@ -4,9 +4,12 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Agora clique em província com unidades mostra a interface Unit Command. Se clique com Shift pressionado, abre-se o gerenciador de província.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -421,7 +424,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772483919941</updated>
     </task>
-    <option name="localTasksCounter" value="44" />
+    <task id="LOCAL-00044" summary="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente.">
+      <option name="closed" value="true" />
+      <created>1772497569322</created>
+      <option name="number" value="00044" />
+      <option name="presentableId" value="LOCAL-00044" />
+      <option name="project" value="LOCAL" />
+      <updated>1772497569322</updated>
+    </task>
+    <option name="localTasksCounter" value="45" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -436,7 +447,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Implementei o tesouro da província." />
     <MESSAGE value="Reformulei o sistema de unidades, atualizei o sistema de combate e atualizei a ui." />
     <MESSAGE value="Corrigi um problema com a compra de workers." />
     <MESSAGE value="Implementei a renderização das unidades. Próximo passo: resolver a renderização do stack, que atualmente renderiza só a primeira unidade da lista." />
@@ -461,6 +471,7 @@
     <MESSAGE value="Sistema de batalha funcional." />
     <MESSAGE value="Interface Unit Command agora mostra bandeira da civilização das stacks." />
     <MESSAGE value="Agora clique em província com unidades mostra a interface Unit Command. Se clique com Shift pressionado, abre-se o gerenciador de província." />
-    <option name="LAST_COMMIT_MESSAGE" value="Agora clique em província com unidades mostra a interface Unit Command. Se clique com Shift pressionado, abre-se o gerenciador de província." />
+    <MESSAGE value="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente." />
+    <option name="LAST_COMMIT_MESSAGE" value="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente." />
   </component>
 </project>

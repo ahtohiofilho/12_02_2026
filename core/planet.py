@@ -39,11 +39,11 @@ class Planet:
     """
 
     def __init__(
-        self,
-        fator: int,
-        starting_biome: str = "Meadow",
-        *,
-        spawn_initial_units: bool = False,
+            self,
+            fator: int,
+            starting_biome: str = "Meadow",
+            *,
+            spawn_initial_units: bool = False,
     ):
         print(f"Instanciando novo objeto Planeta com n={fator}...")
         self.id = str(uuid.uuid4())
@@ -72,6 +72,14 @@ class Planet:
         # civ_id -> tiles bloqueados para essa civ
         self.trade_blocked_tiles_by_civ: dict[int, set[Tile]] = {}
         self.trade_block_version: int = 0
+
+        # ============================================================
+        # NOVO: Visibilidade por rotas comerciais ativas (lógica do mercado)
+        # ============================================================
+        # civ_id -> tiles que devem ficar visíveis na UI enquanto houver fluxo comercial ativo envolvendo a civ
+        self.trade_route_tiles_by_civ: dict[int, set[Tile]] = {}
+        # versão/digest para UI/cache (opcional, mas útil)
+        self.trade_route_visibility_version: int = 0
 
         # --- Etapa 1: Geração Geométrica ---
         print(" -> Etapa 1: Gerando geometria dos polígonos...")
@@ -169,7 +177,71 @@ class Planet:
         # Inicializa bloqueio militar (turno 0 -> 1). No turno 1 ainda não haverá ">=1 turno estacionado".
         self.update_military_block_state()
 
+        # (Opcional) Inicializa visibilidade por rotas comerciais como "vazio" por civ
+        # (Será recalculado no primeiro turno após o mercado rodar; isso evita KeyError cedo.)
+        try:
+            self.trade_route_tiles_by_civ = {int(c.id): set() for c in self.civilizations}
+        except Exception:
+            self.trade_route_tiles_by_civ = {}
+
         print("\nObjeto Planeta criado e pronto para uso.")
+
+    def recompute_trade_route_visibility(self, *, min_quantity: float = 1e-6) -> None:
+        """
+        Recalcula tiles que devem ficar VISÍVEIS na UI por causa de rotas comerciais ativas.
+
+        Regra (anti-leak):
+          - Só conta rotas em que a província de origem OU destino pertence à civ.
+          - Usa caminhos do MarketSystemRealistic (origem->destino) já calculados no turno.
+          - Se não houver caminho, ignora.
+        """
+        tiles_by_civ: dict[int, set[Tile]] = {int(c.id): set() for c in self.civilizations}
+
+        results = self.economy.calcular_equilibrio()  # usa cache se já calculado neste turno
+        if not results:
+            self.trade_route_tiles_by_civ = tiles_by_civ
+            self.trade_route_visibility_version += 1
+            return
+
+        # helper: registra caminho para civs relevantes
+        def add_path_for(civ_ids: set[int], path: list[Tile] | None):
+            if not path:
+                return
+            # normaliza para tuple
+            norm = []
+            for t in path:
+                if isinstance(t, list):
+                    norm.append((int(t[0]), int(t[1])))
+                else:
+                    norm.append((int(t[0]), int(t[1])))
+            for cid in civ_ids:
+                tiles_by_civ[int(cid)].update(norm)
+
+        flux_sources = (results.fluxos_alimento or {}, results.fluxos_minerio or {})
+        for fluxes in flux_sources:
+            for _resource_name, flux_dict in fluxes.items():
+                for seller_tile, buyer_dict in flux_dict.items():
+                    for buyer_tile, qty in buyer_dict.items():
+                        if float(qty or 0.0) <= float(min_quantity):
+                            continue
+
+                        prov_s = self.get_province(seller_tile)
+                        prov_b = self.get_province(buyer_tile)
+                        if not prov_s or not prov_s.owner or not prov_b or not prov_b.owner:
+                            continue
+
+                        seller_civ = int(prov_s.owner.id)
+                        buyer_civ = int(prov_b.owner.id)
+
+                        # Só revela para participantes da rota
+                        civs = {seller_civ, buyer_civ}
+
+                        path = self.economy.get_caminho_rota(seller_tile, buyer_tile)
+                        add_path_for(civs, path)
+
+        if tiles_by_civ != getattr(self, "trade_route_tiles_by_civ", None):
+            self.trade_route_tiles_by_civ = tiles_by_civ
+            self.trade_route_visibility_version += 1
 
     # ============================================================
     # Economia: produção / renda

@@ -1,5 +1,4 @@
 # ui/scene.py
-
 from __future__ import annotations
 
 from typing import Optional, Sequence, Tuple
@@ -23,6 +22,10 @@ class SceneWidget(QOpenGLWidget):
       - Controller chama APENAS métodos da SceneWidget (fachada): set_planet_data(), set_route_path(), set_fow().
       - SceneWidget NÃO deve chamar OpenGL fora de initializeGL/resizeGL/paintGL (ou makeCurrent explicitamente).
       - set_fow() não faz upload GL direto: apenas marca "dirty" e o upload ocorre no paintGL.
+
+    Extensão:
+      - "Route reveal": tiles de uma rota podem ser forçados a aparecer (vis=1.0) enquanto o overlay estiver ativo,
+        sem alterar o Fog of War real do jogo. Também é timing-safe (upload no paintGL).
     """
 
     def __init__(self, controller, parent=None):
@@ -56,10 +59,18 @@ class SceneWidget(QOpenGLWidget):
 
         self._camera_calibrated_planet_id: str | None = None
 
+        # ----------------------------
         # FoW "pending" (evita GL fora do contexto, ex.: F9 no eventFilter)
+        # ----------------------------
         self._pending_fow: tuple[set[Tile], set[Tile]] | None = None
         self._fow_dirty: bool = False
         self._queued_initial_fow: bool = False
+
+        # ----------------------------
+        # NOVO: Route reveal "pending" (tiles da rota forçados a aparecer)
+        # ----------------------------
+        self._pending_route_reveal: set[Tile] | None = None
+        self._route_reveal_dirty: bool = False
 
     # ----------------------------
     # Fachada para o Controller
@@ -119,13 +130,16 @@ class SceneWidget(QOpenGLWidget):
         if not self.renderer:
             return
 
-        if hasattr(self.renderer, "set_route_path"):
-            self.renderer.set_route_path(path_tiles)
-        else:
-            rr = getattr(self.renderer, "route_renderer", None)
-            if rr is not None:
-                rr.state.set_path(path_tiles)
+        normalized: list[Tile] | None = None
+        if path_tiles:
+            normalized = []
+            for t in path_tiles:
+                if isinstance(t, (list, tuple)) and len(t) >= 2:
+                    normalized.append((int(t[0]), int(t[1])))
+            if not normalized:
+                normalized = None
 
+        self.renderer.set_route_path(normalized)
         self.update()
 
     def update_units_data(self, planet_object) -> None:
@@ -135,9 +149,8 @@ class SceneWidget(QOpenGLWidget):
         tur = getattr(self.renderer, "tile_units_renderer", None)
         if tur is not None:
             # Propagar civ controlada para o renderer
-            if hasattr(self.controller, 'controlled_civ_id'):
+            if hasattr(self.controller, "controlled_civ_id"):
                 tur._controlled_civ_id = self.controller.controlled_civ_id
-
             tur.set_data(planet_object, self.renderer.centros_3d_tiles)
 
         self.update()
@@ -159,22 +172,20 @@ class SceneWidget(QOpenGLWidget):
             return
         if not self.renderer or self.camera is None:
             return
-
         if self.renderer.needs_init():
             return
 
         explored, visible = self._pending_fow
         self._fow_dirty = False
 
-        # Upload GL
+        # Upload GL (permitido aqui: estamos no paintGL)
         self.renderer.update_visibility_texture(explored, visible)
 
-        # CPU-side filters
+        # CPU-side filters (não-GL)
         tur = getattr(self.renderer, "tile_units_renderer", None)
         if tur is not None:
             tur.visible_tiles = visible
-            # Garantir que _controlled_civ_id está atualizado
-            if hasattr(self.controller, 'controlled_civ_id'):
+            if hasattr(self.controller, "controlled_civ_id"):
                 tur._controlled_civ_id = self.controller.controlled_civ_id
 
         cfr = getattr(self.renderer, "civ_flag_renderer", None)
@@ -233,14 +244,14 @@ class SceneWidget(QOpenGLWidget):
         gl.glClearColor(0.0, 0.0, 0.0, 1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
 
-        gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
-
         if self.renderer.needs_init():
             ok = self.renderer.init_gl()
             if ok and not getattr(self, "_queued_initial_fow", False):
                 self._queued_initial_fow = True
+                # agenda update_fow fora do paintGL (mas ele só vai setar pending)
                 QtCore.QTimer.singleShot(0, self.controller.update_fow)
 
+        # 1) aplica FoW real primeiro (atualiza last_fow no renderer)
         self._apply_pending_fow_if_needed()
 
         view_matrix = self.camera.get_view_matrix()
@@ -255,5 +266,5 @@ class SceneWidget(QOpenGLWidget):
     def set_active_stack_uid(self, stack_uid: str | None) -> None:
         tur = getattr(self.renderer, "tile_units_renderer", None)
         if tur is not None:
-            tur.active_stack_uid = stack_uid  # novo atributo no renderer
+            tur.active_stack_uid = stack_uid
         self.update()

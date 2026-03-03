@@ -64,6 +64,15 @@ class PlanetRenderer:
         self.visibility_texture = None
         self._pending_fow: tuple[set, set] | None = None  # (explored_tiles, visible_tiles)
 
+        # ----------------------------
+        # "Route reveal" (tiles forçados a aparecer enquanto overlay de rota estiver ativo)
+        # ----------------------------
+        self._route_reveal_tiles: set[tuple[int, int]] = set()
+
+        # Guarda o último FoW real aplicado (para recompor quando a rota mudar)
+        self._last_fow_explored: set[tuple[int, int]] = set()
+        self._last_fow_visible: set[tuple[int, int]] = set()
+
         # Shader principal do planeta
         self.vertex_shader_source = """
         #version 330 core
@@ -144,6 +153,19 @@ class PlanetRenderer:
             FragColor = uHighlightColor;
         }
         """
+
+    def set_route_reveal_tiles(self, tiles: set[tuple[int, int]] | None) -> None:
+        """
+        Define tiles que devem ser tratados como 'visíveis' APENAS para renderização do planeta,
+        enquanto uma rota estiver ativa (hover/seleção na UI).
+
+        Não altera explored/visible do jogo (VisibilityManager).
+        """
+        self._route_reveal_tiles = set(tiles or ())
+
+        # Reaplica a textura com base no último FoW conhecido.
+        # (Timing-safe: update_visibility_texture já lida com não ter GL/texture ainda.)
+        self.update_visibility_texture(self._last_fow_explored, self._last_fow_visible)
 
     def set_controller(self, controller):
         """Define a referência ao controller"""
@@ -370,33 +392,29 @@ class PlanetRenderer:
             return False
 
     def update_visibility_texture(self, explored_tiles: set, visible_tiles: set) -> None:
-        """
-        Atualiza a textura de FoW na GPU com os dados mais recentes.
-
-        Timing-safe:
-        - Se o renderer ainda não tem mapeamento/texture (init_gl não rodou), guarda em _pending_fow.
-        """
         explored_tiles = set(explored_tiles or ())
         visible_tiles = set(visible_tiles or ())
 
-        # ✅ Repasse do FoW para o renderer de bandeiras (para filtrar instâncias)
+        # Snapshot do FoW real (para recompor quando route_reveal mudar)
+        self._last_fow_explored = set(explored_tiles)
+        self._last_fow_visible = set(visible_tiles)
+
+        route_tiles = set(getattr(self, "_route_reveal_tiles", set()) or ())
+
+        # (mantém sua lógica de bandeiras — aqui eu NÃO incluo route_tiles de propósito)
         if getattr(self, "civ_flag_renderer", None) is not None:
             try:
                 self.civ_flag_renderer.set_fow(explored_tiles, visible_tiles)
-
-                # ✅ IMPORTANTE: as instâncias de bandeiras são "cacheadas".
-                # Recria instâncias agora para aplicar o filtro de FoW.
                 if hasattr(self.civ_flag_renderer, "refresh_instances"):
                     self.civ_flag_renderer.refresh_instances()
             except Exception:
                 pass
 
-        # Se ainda não temos o mapeamento (coords -> índice), não dá pra montar o array
+        # timing-safe: sem mapeamento ou sem texture -> pendura
         if not getattr(self, "tile_coords_to_index", None):
             self._pending_fow = (set(explored_tiles), set(visible_tiles))
             return
 
-        # Se a textura ainda não existe, guarda para aplicar quando existir
         tex = getattr(self, "visibility_texture", None)
         if not tex:
             self._pending_fow = (set(explored_tiles), set(visible_tiles))
@@ -407,7 +425,7 @@ class PlanetRenderer:
 
         # Preenche: 1.0 visível, 0.5 explorado, 0.0 desconhecido
         for coords, idx in self.tile_coords_to_index.items():
-            if coords in visible_tiles:
+            if coords in visible_tiles or coords in route_tiles:
                 vis_array[idx] = 1.0
             elif coords in explored_tiles:
                 vis_array[idx] = 0.5
