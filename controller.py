@@ -7,7 +7,7 @@ from core.planet import Planet
 from input.input_manager import InputManager
 from core.selection.state import SelectionState
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from config.unit_stats import get_unit_stats
 from core.diplomacy import Relation
 from core.commands.pathfinding import allowed_biomes_for_stack
@@ -333,14 +333,36 @@ class Controller:
 
         self.update_fow()
 
-        # 7) ✅ Recalcula mercado global realista (para a UI refletir rotas/preços do novo estado)
-        #    - depende de explored (visibilidade)
-        #    - depende de bloqueio militar (trade_blocked_tiles_by_civ)
+        # 7) ✅ Recalcula mercado global realista ...
         try:
             self.game.economy.invalidar_cache()
             self.game.economy.calcular_equilibrio(forcar_recalculo=True)
         except Exception as e:
             print(f"⚠️ Falha ao recalcular mercado pós-turno: {e}")
+
+        # ✅ (7b) força refresh da TradeTab (sem depender do restante do painel)
+        def _refresh_trade_if_open():
+            try:
+                if not self.window or not hasattr(self.window, "sidebar"):
+                    return
+                sb = self.window.sidebar
+                if not hasattr(sb, "stacked_widget") or sb.stacked_widget.currentIndex() != 2:
+                    return  # ProvinceDetail não está visível
+
+                pd = getattr(sb, "province_detail", None)
+                if not pd:
+                    return
+
+                trade = getattr(pd, "trade_tab", None)
+                if trade and hasattr(trade, "update_display"):
+                    trade.update_display()
+                    trade.update()  # repinta o widget
+                    pd.update()  # repinta o painel da província
+            except Exception as e:
+                print(f"⚠️ Falha no refresh da TradeTab: {e}")
+
+        # agenda para depois do restante do turno/UI (evita timing com signals/paint)
+        QTimer.singleShot(0, _refresh_trade_if_open)
 
         # 8) Atualizações de UI (painéis) e cena
         self._update_ui_post_turn()

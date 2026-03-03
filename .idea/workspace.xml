@@ -6,10 +6,7 @@
   <component name="ChangeListManager">
     <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Agora clique em província com unidades mostra a interface Unit Command. Se clique com Shift pressionado, abre-se o gerenciador de província.">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/config/gameplay.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/gameplay.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/commands/manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/commands/manager.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/core/commands/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/commands/models.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

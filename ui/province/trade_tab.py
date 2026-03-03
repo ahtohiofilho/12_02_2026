@@ -78,7 +78,6 @@ class TradeTabWidget(QWidget):
         self.update_display()
 
     def update_display(self):
-        """Ponto de entrada para atualizar os dados da aba."""
         if self.facade:
             self._load_data()
         else:
