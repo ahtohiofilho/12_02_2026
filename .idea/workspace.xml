@@ -4,12 +4,26 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente.">
+    <list default="true" id="5610a97c-725f-480b-982a-cf882c5bf056" name="Changes" comment="Agora a rota comercial torna os respectivos tiles visíveis.">
+      <change afterPath="$PROJECT_DIR$/core/combat_v2/__init__.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/combat_v2/api.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/combat_v2/duel.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/combat_v2/engine.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/combat_v2/tables.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/core/combat_v2/target_selection.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/economy.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/economy.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config/unit_stats.py" beforeDir="false" afterPath="$PROJECT_DIR$/config/unit_stats.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/controller.py" beforeDir="false" afterPath="$PROJECT_DIR$/controller.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/commands/manager.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/commands/manager.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/commands/models.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/commands/models.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/commands/validator.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/commands/validator.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/planet.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/planet.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/core/rendering/planet_renderer.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/rendering/planet_renderer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui/scene.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/scene.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/stacks/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/stacks/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/stacks/repo.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/stacks/repo.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/core/turn_engine.py" beforeDir="false" afterPath="$PROJECT_DIR$/core/turn_engine.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/window.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/window.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -50,21 +64,23 @@
     <option name="sortByType" value="true" />
     <option name="sortKey" value="BY_TYPE" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
-    &quot;Python.concatenador.executor&quot;: &quot;Run&quot;,
-    &quot;Python.main.executor&quot;: &quot;Run&quot;,
-    &quot;Python.market.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/ahtoh/PycharmProjects/ga&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.concatenador.executor": "Run",
+    "Python.concatenador_commit.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.market.executor": "Run",
+    "Python.turn_engine.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "master",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/Users/ahtoh/PycharmProjects/ga",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable"
   }
-}</component>
+}]]></component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -432,7 +448,15 @@
       <option name="project" value="LOCAL" />
       <updated>1772497569322</updated>
     </task>
-    <option name="localTasksCounter" value="45" />
+    <task id="LOCAL-00045" summary="Agora a rota comercial torna os respectivos tiles visíveis.">
+      <option name="closed" value="true" />
+      <created>1772514307101</created>
+      <option name="number" value="00045" />
+      <option name="presentableId" value="LOCAL-00045" />
+      <option name="project" value="LOCAL" />
+      <updated>1772514307101</updated>
+    </task>
+    <option name="localTasksCounter" value="46" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -447,7 +471,6 @@
     </option>
   </component>
   <component name="VcsManagerConfiguration">
-    <MESSAGE value="Reformulei o sistema de unidades, atualizei o sistema de combate e atualizei a ui." />
     <MESSAGE value="Corrigi um problema com a compra de workers." />
     <MESSAGE value="Implementei a renderização das unidades. Próximo passo: resolver a renderização do stack, que atualmente renderiza só a primeira unidade da lista." />
     <MESSAGE value="Modificada a forma de renderizar unidades: agora todo o stack é renderizado formando-se um círculo." />
@@ -472,6 +495,7 @@
     <MESSAGE value="Interface Unit Command agora mostra bandeira da civilização das stacks." />
     <MESSAGE value="Agora clique em província com unidades mostra a interface Unit Command. Se clique com Shift pressionado, abre-se o gerenciador de província." />
     <MESSAGE value="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente." />
-    <option name="LAST_COMMIT_MESSAGE" value="Agora, quando uma nova rota é descoberta, a aba Trade se atualiza automaticamente." />
+    <MESSAGE value="Agora a rota comercial torna os respectivos tiles visíveis." />
+    <option name="LAST_COMMIT_MESSAGE" value="Agora a rota comercial torna os respectivos tiles visíveis." />
   </component>
 </project>

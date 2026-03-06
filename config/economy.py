@@ -5,11 +5,11 @@ Fonte única de verdade para valores numéricos do sistema econômico.
 """
 
 # Multiplicador de jornada: produção = workers_int * produtividade * MULTIPLICADOR
-MULTIPLICADOR_JORNADA: int = 16
+MULTIPLICADOR_JORNADA: int = 1
 
 # Workers iniciais para a PRIMEIRA província (capital) de cada civilização.
 # Províncias fundadas depois recebem workers via colonização/transferência.
-WORKERS_CAPITAL_INICIAL: int = 2
+WORKERS_CAPITAL_INICIAL: int = 1
 
 # Custo de trabalhador: base * (2 ^ workers_na_fila)
 CUSTO_TRABALHADOR_BASE: float = 5.0

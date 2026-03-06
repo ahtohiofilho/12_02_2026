@@ -392,6 +392,18 @@ class PlanetRenderer:
             return False
 
     def update_visibility_texture(self, explored_tiles: set, visible_tiles: set) -> None:
+        """
+        Atualiza a textura 1D de visibilidade (FoW) do planeta.
+
+        Convenções:
+          - 0.0 = desconhecido
+          - 0.5 = explorado (fog)
+          - 1.0 = visível
+        Regras:
+          - route_tiles (overlay) contam como "visível" APENAS para o chão (planeta),
+            NÃO para bandeiras/unidades (anti-leak).
+          - Timing-safe: se GL/texturas ainda não estão prontas, guarda em _pending_fow.
+        """
         explored_tiles = set(explored_tiles or ())
         visible_tiles = set(visible_tiles or ())
 
@@ -401,7 +413,11 @@ class PlanetRenderer:
 
         route_tiles = set(getattr(self, "_route_reveal_tiles", set()) or ())
 
-        # (mantém sua lógica de bandeiras — aqui eu NÃO incluo route_tiles de propósito)
+        # ─────────────────────────────────────────────────────────────
+        # (1) Propaga FoW para sub-renderers (somente FoW REAL)
+        #     - bandeiras: só em explored/visible reais
+        #     - unidades: inimigos só em visible real; próprias sempre
+        # ─────────────────────────────────────────────────────────────
         if getattr(self, "civ_flag_renderer", None) is not None:
             try:
                 self.civ_flag_renderer.set_fow(explored_tiles, visible_tiles)
@@ -410,7 +426,17 @@ class PlanetRenderer:
             except Exception:
                 pass
 
-        # timing-safe: sem mapeamento ou sem texture -> pendura
+        if getattr(self, "tile_units_renderer", None) is not None:
+            try:
+                # UnitsRenderer usa visible_tiles para esconder inimigos fora da visão
+                self.tile_units_renderer.visible_tiles = set(visible_tiles)
+                # (opcional) controlled civ id pode ser setado em outro lugar; não force aqui.
+            except Exception:
+                pass
+
+        # ─────────────────────────────────────────────────────────────
+        # (2) Timing-safe: sem mapeamento ou sem textura -> pendura
+        # ─────────────────────────────────────────────────────────────
         if not getattr(self, "tile_coords_to_index", None):
             self._pending_fow = (set(explored_tiles), set(visible_tiles))
             return
@@ -420,6 +446,9 @@ class PlanetRenderer:
             self._pending_fow = (set(explored_tiles), set(visible_tiles))
             return
 
+        # ─────────────────────────────────────────────────────────────
+        # (3) Atualiza a textura 1D (planeta) — aqui route_tiles contam
+        # ─────────────────────────────────────────────────────────────
         num_tiles = len(self.tile_coords_to_index)
         vis_array = np.zeros(num_tiles, dtype=np.float32)
 

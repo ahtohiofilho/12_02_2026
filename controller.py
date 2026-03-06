@@ -8,6 +8,7 @@ from input.input_manager import InputManager
 from core.selection.state import SelectionState
 
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QApplication
 from config.unit_stats import get_unit_stats
 from core.diplomacy import Relation
 from core.commands.pathfinding import allowed_biomes_for_stack
@@ -304,13 +305,45 @@ class Controller:
             print("⚠️ Nenhum planeta ativo.")
             return
 
+        # ─────────────────────────────────────────────────────────────
+        # SNAPSHOTS PRÉ-TURNO (anti-spoiler do combat log)
+        #   - tiles visíveis no começo do turno
+        #   - tiles que pertenciam à civ no começo do turno (províncias)
+        # Esses snapshots serão anexados ao TurnReport para o filtro por civ.
+        # ─────────────────────────────────────────────────────────────
+        def _snapshot_pre_visible_by_civ() -> dict[int, set[tuple[int, int]]]:
+            out: dict[int, set[tuple[int, int]]] = {}
+            vis = getattr(self.game, "visibility", None)
+            civs = getattr(self.game, "civilizations", None) or []
+            if vis is None:
+                return out
+            for civ in civs:
+                cid = getattr(civ, "id", None)
+                if cid is None:
+                    continue
+                st = vis.get_state(int(cid))
+                out[int(cid)] = set(getattr(st, "visible", set()) or ())
+            return out
+
+        def _snapshot_pre_owned_tiles_by_civ() -> dict[int, set[tuple[int, int]]]:
+            out: dict[int, set[tuple[int, int]]] = {}
+            provs = getattr(self.game, "provinces_by_tile", None) or {}
+            for tile, prov in provs.items():
+                owner = getattr(prov, "owner", None)
+                cid = getattr(owner, "id", None) if owner is not None else None
+                if cid is None:
+                    continue
+                out.setdefault(int(cid), set()).add((int(tile[0]), int(tile[1])))
+            return out
+
+        pre_visible_by_civ = _snapshot_pre_visible_by_civ()
+        pre_owned_tiles_by_civ = _snapshot_pre_owned_tiles_by_civ()
+
         # 0) Envia ordens acumuladas para o TurnEngine
         cmd_count = self.game.command_manager.flush_to_engine()
         print(f"📋 {cmd_count} ordem(ns) submetida(s) ao TurnEngine.")
 
         # 1) Produção/economia do turno (fila + renda do turno anterior)
-        #    (no seu Planet.process_production já chama economy.calcular_equilibrio(forcar_recalculo=True)
-        #     para aplicar renda do turno anterior)
         print("\n🏭 Processando produção e economia...")
         production_reports = self.game.process_production()
         if production_reports:
@@ -320,6 +353,13 @@ class Controller:
         # 2) Resolve movimentos/combates (isso pode mudar quais tiles estão ocupados por militar)
         print("\n⚔️ Resolvendo movimentos e combates...")
         turn_report = self.game.turn_engine.resolve_turn()
+
+        # ✅ Anexa snapshots pré-turno ao report (para combat_log_for_civ)
+        try:
+            turn_report.pre_visible_by_civ = pre_visible_by_civ
+            turn_report.pre_owned_tiles_by_civ = pre_owned_tiles_by_civ
+        except Exception as e:
+            print(f"⚠️ Falha ao anexar snapshots pré-turno ao TurnReport: {e}")
 
         print(f"\n⏩ Turno {turn_report.turn_number} resolvido!")
         print(f"   Ordens processadas: {turn_report.total_orders}")
@@ -620,9 +660,7 @@ class Controller:
         if self.debug_mode:
             selectable_stacks = [s for s in stacks if not s.is_empty()]
         else:
-            selectable_stacks = [
-                s for s in stacks if (not s.is_empty() and s.owner_id == civ.id)
-            ]
+            selectable_stacks = [s for s in stacks if (not s.is_empty() and s.owner_id == civ.id)]
 
         if selectable_stacks:
             active_uid = None
@@ -658,17 +696,8 @@ class Controller:
             # ✅ Regra de UX:
             # - padrão: abre Unit Command
             # - com Shift: abre gerenciador da cidade (ProvinceDetail), se existir
-            mods = Qt.KeyboardModifiers()
-            try:
-                mods = Qt.KeyboardModifiers(int(Qt.QApplication.keyboardModifiers()))
-            except Exception:
-                # fallback: em alguns ambientes, use diretamente QtWidgets.QApplication
-                try:
-                    from PySide6.QtWidgets import QApplication
-                    mods = QApplication.keyboardModifiers()
-                except Exception:
-                    pass
-
+            # ✅ Correção: em PySide6, use QApplication.keyboardModifiers()
+            mods = QApplication.keyboardModifiers()
             shift_down = bool(mods & Qt.ShiftModifier)
 
             if shift_down and province and self.window:
@@ -712,38 +741,71 @@ class Controller:
     def on_tile_right_clicked(self, tile_coords):
         if not self.game:
             return
-
         if not self.selection.has_selection:
             self._on_tile_info(tile_coords)
             return
-
         civ = self.controlled_civ
         if not civ:
             return
-
+        stack_uid = self.selection.selected_stack_uid
+        stack = self.game.stacks.get_stack(stack_uid)
+        if not stack or stack.is_empty():
+            return
+        # 1) Detecta se há inimigo no tile clicado (província ou stack)
+        owner_id = int(stack.owner_id)
+        target_civ_ids: set[int] = set()
+        province = self.game.get_province(tile_coords)
+        if province and province.owner:
+            target_civ_ids.add(int(province.owner.id))
+        for s in self.game.stacks.stacks_in_tile(tile_coords):
+            if not s.is_empty():
+                target_civ_ids.add(int(s.owner_id))
+        target_civ_ids.discard(owner_id)
+        has_enemy = any(self.game.diplomacy.relation(owner_id, cid) == Relation.ENEMY for cid in target_civ_ids)
+        # 2) Se é inimigo e a stack é militar => ATTACK_TILE (remoto/explicito)
+        # Observação: aqui você pode exigir range>0 em pelo menos uma unidade, se quiser.
+        is_military = any(
+            (get_unit_stats(u.unit_key) is not None and not get_unit_stats(u.unit_key).is_non_combat) for u in
+            stack.units)
+        if has_enemy and is_military:
+            ok, msg, cmd = self.game.command_manager.issue_attack_tile_command(
+                stack_uid=stack_uid,
+                target_tile=tile_coords,
+                owner_civ_id=int(civ.id),
+                planet=self.game,
+                evasion_mode="COMMITTED",
+                target_layer=None,
+            )
+            print(("✅ " if ok else "❌ ") + str(msg))
+            # UX: overlay pode ser uma "linha" simples (origem->alvo) ou nada.
+            self._clear_route_overlay()
+            if self.window and hasattr(self.window.sidebar, "update_units_views"):
+                self.window.sidebar.update_units_views()
+            elif self.window and hasattr(self.window.sidebar, "update_selection_panel"):
+                self.window.sidebar.update_selection_panel()
+            if self.scene:
+                self.scene.update()
+            return
+        # 3) Caso contrário, comportamento atual: MOVE
         ok, msg, cmd = self.game.command_manager.issue_move_command(
-            stack_uid=self.selection.selected_stack_uid,
+            stack_uid=stack_uid,
             destination=tile_coords,
-            owner_civ_id=civ.id,
+            owner_civ_id=int(civ.id),
             planet=self.game,
         )
-
         if ok and cmd and cmd.path:
             print(f"✅ Comando aceito: {msg}")
             self._set_route_overlay(cmd.path)
             self.selection.preview_path = cmd.path
-
             if self.input_manager:
                 self.input_manager._last_hover_tile = None
         else:
             print(f"❌ Comando rejeitado: {msg}")
             self._clear_route_overlay()
-
         if self.window and hasattr(self.window.sidebar, "update_units_views"):
             self.window.sidebar.update_units_views()
         elif self.window and hasattr(self.window.sidebar, "update_selection_panel"):
             self.window.sidebar.update_selection_panel()
-
         if self.scene:
             self.scene.update()
 
@@ -763,7 +825,10 @@ class Controller:
             self.scene.setCursor(default_cursor)
             return
 
-        is_military = any(not get_unit_stats(u.unit_key).is_non_combat for u in stack.units)
+        is_military = any(
+            (get_unit_stats(u.unit_key) is not None) and (not get_unit_stats(u.unit_key).is_non_combat)
+            for u in stack.units
+        )
 
         # ── 1. Verificação de Diplomacia e Cidades (Portos) ──
         owner_id = stack.owner_id

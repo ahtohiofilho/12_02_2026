@@ -24,16 +24,29 @@ class ValidationResult:
 
 class CommandValidator:
     """
-    Valida comandos ANTES de submetê-los ao TurnEngine.
-    Dá feedback imediato ao jogador.
+    Valida comandos **antes** de submetê-los ao TurnEngine e retorna feedback imediato ao jogador.
 
-    Garante que:
-      - A stack existe e não está vazia
-      - O destino existe e é acessível (bioma compatível)
-      - Existe um caminho válido até o destino (sem limite de custo)
-      - O caminho não passa por territórios inimigos ou neutros
+    Escopo:
+    - Esta classe valida a *intenção* do comando (MOVE / ATTACK_TILE) e evita ordens inviáveis
+      (stack inválida, tile inexistente, bioma incompatível etc.).
+    - Ela **não** executa movimento por turno e **não** resolve combate.
 
-    O controle de avanço por turno é responsabilidade do CommandManager.flush_to_engine().
+    Regras atuais (4X clássico + combate v2.1):
+    - MOVE:
+        * A stack deve existir e não estar vazia.
+        * O tile de destino deve existir no grafo.
+        * O bioma do destino deve ser acessível para a stack (domínio/biomas permitidos).
+        * Restrições diplomáticas no destino (se `planet` for fornecido):
+            - entrar em território **NEUTRAL** é bloqueado;
+            - entrar em território **ALLY** é permitido;
+            - entrar em território **ENEMY** é permitido (o combate será resolvido pelo TurnEngine ao entrar).
+        * Deve existir um caminho válido (pathfinding sem limite de custo, pois o comando pode ser multi-turno).
+
+    - ATTACK_TILE:
+        * Validação separada do MOVE.
+        * Não exige path (não move a stack).
+        * Pode exigir que exista alvo inimigo no tile (província ou stack), dependendo da configuração.
+        * Alcance (distância <= range) é verificado na fase
     """
 
     def __init__(self, graph, stacks: StackRepository):
@@ -84,21 +97,25 @@ class CommandValidator:
             )
 
         # ── Verificar se destino é território bloqueado ──
-        effective_owner = owner_civ_id if owner_civ_id is not None else stack.owner_id
-        if planet is not None and effective_owner is not None:
+        # 4X clássico: bloqueia NEUTRAL, permite ENEMY (combate acontece no TurnEngine)
+        effective_owner = int(owner_civ_id) if owner_civ_id is not None else int(stack.owner_id)
+        if planet is not None:
             from core.diplomacy import Relation
-
+            destination = (int(destination[0]), int(destination[1]))
             dest_province = planet.provinces_by_tile.get(destination)
             if dest_province and dest_province.owner is not None:
-                dest_owner_id = dest_province.owner.id
+                dest_owner_id = int(dest_province.owner.id)
                 if dest_owner_id != effective_owner:
                     rel = planet.diplomacy.relation(effective_owner, dest_owner_id)
-                    if rel != Relation.ALLY:
-                        rel_name = rel.name.lower()
+                    # ✅ Regra 4X: não entra em território NEUTRAL
+                    if rel == Relation.NEUTRAL:
                         return ValidationResult(
                             False,
-                            f"Destino pertence a uma civilização {rel_name}.",
+                            "Destino pertence a uma civilização neutral.",
                         )
+                    # ✅ ALLY: permitido
+                    # ✅ ENEMY: permitido (o combate resolve ao entrar)
+                    # (Se existir outro estado no futuro, trate aqui.)
 
         # Unit keys da stack (para custos variáveis)
         unit_keys = [u.unit_key for u in stack.units]
@@ -135,3 +152,54 @@ class CommandValidator:
             path=path,
             cost=total_cost,
         )
+
+    def validate_attack_tile(
+        self,
+        stack_uid: str,
+        target_tile: Tile,
+        *,
+        planet=None,
+        owner_civ_id: int | None = None,
+        target_layer: str | None = None,
+    ) -> ValidationResult:
+        stack = self.stacks.get_stack(stack_uid)
+        if stack is None:
+            return ValidationResult(False, "Stack não existe.")
+        if stack.is_empty():
+            return ValidationResult(False, "Stack está vazia.")
+
+        target_tile = (int(target_tile[0]), int(target_tile[1]))
+
+        if not self.graph.has_node(target_tile):
+            return ValidationResult(False, "Tile alvo não existe no mapa.")
+
+        if stack.tile == target_tile:
+            return ValidationResult(False, "Tile alvo é o tile atual (use combate local/movimento).")
+
+        effective_owner = owner_civ_id if owner_civ_id is not None else stack.owner_id
+
+        # (opcional) exige que exista inimigo no tile alvo (província ou stack)
+        if planet is not None and effective_owner is not None:
+            from core.diplomacy import Relation
+
+            enemy_present = False
+
+            prov = planet.provinces_by_tile.get(target_tile)
+            if prov and prov.owner is not None:
+                if planet.diplomacy.relation(int(effective_owner), int(prov.owner.id)) == Relation.ENEMY:
+                    enemy_present = True
+
+            if not enemy_present:
+                for s in planet.stacks.stacks_in_tile(target_tile):
+                    if s.is_empty():
+                        continue
+                    if planet.diplomacy.relation(int(effective_owner), int(s.owner_id)) == Relation.ENEMY:
+                        enemy_present = True
+                        break
+
+            if not enemy_present:
+                return ValidationResult(False, "Não há inimigo no tile alvo.")
+
+        # alcance será validado no TurnEngine/CombatV2, então aqui é OK.
+        # Retorna valid=True sem path.
+        return ValidationResult(True, "OK", path=None, cost=0.0)

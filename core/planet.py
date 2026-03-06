@@ -3,26 +3,34 @@ from __future__ import annotations
 
 import random
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 import networkx as nx
 
 from config import CIV_CORES
 from config.civilization import CULTURAS
+
 from core.commands.manager import CommandManager
+from core.commands.models import CommandType  # ✅ NOVO: usado no callback attack_orders_for_tile
 from core.diplomacy import DiplomacyMatrix, Relation
+
 from core.economy.adapters.planet_adapter import PlanetEconomyAdapter
-from core.economy.market_realistic import MarketSystemRealistic  # ✅ NOVO (mercado realista por FoW/bloqueio)
+from core.economy.market_realistic import MarketSystemRealistic
 from core.economy.production import apply_province_income, process_production_queue
 from core.economy.province_repo import ProvinceEconomyRepository
+
 from core.generation._geography import seed_from_planet_id, definir_geografia
 from core.production.repo import ProductionQueueRepository
+
 from core.stacks import StackRepository
 from core.turn_engine import TurnEngine
+
 from core.visibility import VisibilityManager
 from core.workforce.repo import WorkforceRepository
+
 from .civilization import Civilization, Province
 from .generation._polygons import dicionario_poligonos
+
 
 
 Tile = tuple[int, int]
@@ -46,39 +54,35 @@ class Planet:
             spawn_initial_units: bool = False,
     ):
         print(f"Instanciando novo objeto Planeta com n={fator}...")
+
         self.id = str(uuid.uuid4())
         self.fator = int(fator)
         self.starting_biome = starting_biome
         self.geography_seed: int = seed_from_planet_id(self.id)
 
-        # NOVO: nomes de província usados no planeta (para unicidade)
+        # Nomes de província usados no planeta (para unicidade)
         self.used_province_names: set[str] = set()
 
         # ============================================================
         # Versões (cache / invalidação)
         # ============================================================
-        # (Por enquanto você pode recalcular mercado todo turno; mesmo assim, é barato manter.)
         self.economy_version: int = 0
         self.diplomacy_version: int = 0
-        # digest simples de visibilidade (como explored tende a crescer monotonicamente, soma serve)
         self.visibility_version_sum: int = 0
 
         # ============================================================
         # Trade blocking (militar) — estado por turno
         # ============================================================
-        # tile -> {"land": set(civ_ids), "naval": set(civ_ids)}
+        Tile = tuple[int, int]
         self.trade_block_prev: dict[Tile, dict[str, set[int]]] = {}
         self.trade_block_now: dict[Tile, dict[str, set[int]]] = {}
-        # civ_id -> tiles bloqueados para essa civ
         self.trade_blocked_tiles_by_civ: dict[int, set[Tile]] = {}
         self.trade_block_version: int = 0
 
         # ============================================================
-        # NOVO: Visibilidade por rotas comerciais ativas (lógica do mercado)
+        # Visibilidade por rotas comerciais ativas
         # ============================================================
-        # civ_id -> tiles que devem ficar visíveis na UI enquanto houver fluxo comercial ativo envolvendo a civ
         self.trade_route_tiles_by_civ: dict[int, set[Tile]] = {}
-        # versão/digest para UI/cache (opcional, mas útil)
         self.trade_route_visibility_version: int = 0
 
         # --- Etapa 1: Geração Geométrica ---
@@ -123,7 +127,6 @@ class Planet:
         # --- Etapa 3: Criação das Civilizações ---
         print(" -> Etapa 3: Preparando para criar civilizações...")
 
-        # O mapa DEVE existir ANTES da criação das civilizações, pois elas o consultam.
         self.provinces_by_tile: dict[Tile, Province] = {}
         print("[Planet] Mapa de províncias por tile inicializado (vazio).")
 
@@ -131,7 +134,6 @@ class Planet:
         self._create_initial_civilizations()
         print(f" -> Civilizações concluídas. {len(self.civilizations)} nações foram fundadas.")
 
-        # Popula o mapa de províncias por tile (redundante mas ok; o construtor já insere a capital)
         for civ in self.civilizations:
             for prov in civ.provinces:
                 self.provinces_by_tile[prov.tile_coords] = prov
@@ -144,7 +146,6 @@ class Planet:
         self.stacks = StackRepository()
         self.econ_repo = ProvinceEconomyRepository()
 
-        # ✅ Mercado realista: custos dirigidos por vendedor (FoW + bloqueio + diplomacia)
         self.economy = MarketSystemRealistic(
             planet=self,
             world=PlanetEconomyAdapter(self, self.econ_repo),
@@ -158,10 +159,17 @@ class Planet:
         if spawn_initial_units:
             self._spawn_initial_stacks()
 
+        # ============================================================
+        # TurnEngine + CommandManager (ordem ajustada + combate remoto)
+        # ============================================================
+        # Como CommandManager precisa de turn_engine no construtor, criamos TurnEngine primeiro,
+        # mas sem o callback de ataque (ainda não existe command_manager).
         self.turn_engine = TurnEngine(
             stacks=self.stacks,
             diplomacy=self.diplomacy,
-            biome_at=lambda t: self.graph.nodes.get(t, {}).get("bioma"),
+            biome_at=lambda t: (self.graph.nodes.get(t, {}).get("bioma") or "Meadow"),
+            graph_provider=lambda: self.graph,  # ✅ habilita distâncias p/ combate remoto
+            attack_orders_for_tile=None,  # será ligado logo após criar o CommandManager
         )
 
         self.command_manager = CommandManager(
@@ -171,14 +179,41 @@ class Planet:
             planet=self,
         )
 
-        self.visibility = VisibilityManager(self)
-        self.visibility.update_all_civs()  # Calcula a visão inicial
+        # Agora liga o callback (sem “pull”): só retorna stacks com ATTACK_TILE explícito para aquele tile
+        def _attack_orders_for_tile(tile: Tile) -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            tile = (int(tile[0]), int(tile[1]))
 
-        # Inicializa bloqueio militar (turno 0 -> 1). No turno 1 ainda não haverá ">=1 turno estacionado".
+            for cmd in self.command_manager.all_pending():
+                if cmd.command_type != CommandType.ATTACK_TILE:
+                    continue
+                tt = cmd.target_tile() if hasattr(cmd, "target_tile") else cmd.extra.get("target_tile")
+                if not tt:
+                    continue
+                tt = (int(tt[0]), int(tt[1]))
+                if tt != tile:
+                    continue
+
+                out.append(
+                    {
+                        "stack_uid": cmd.stack_uid,
+                        "owner_civ_id": int(cmd.owner_civ_id),
+                        "evasion_mode": (
+                            cmd.evasion_mode() if hasattr(cmd, "evasion_mode") else cmd.extra.get("evasion_mode",
+                                                                                                  "COMMITTED")),
+                        "target_layer": cmd.extra.get("target_layer"),
+                    }
+                )
+            return out
+
+        self.turn_engine.attack_orders_for_tile = _attack_orders_for_tile
+
+        # --- Visibilidade / bloqueio / pós-init ---
+        self.visibility = VisibilityManager(self)
+        self.visibility.update_all_civs()
+
         self.update_military_block_state()
 
-        # (Opcional) Inicializa visibilidade por rotas comerciais como "vazio" por civ
-        # (Será recalculado no primeiro turno após o mercado rodar; isso evita KeyError cedo.)
         try:
             self.trade_route_tiles_by_civ = {int(c.id): set() for c in self.civilizations}
         except Exception:
@@ -593,7 +628,7 @@ class Planet:
         # Mantive "infantry" porque estava no seu código original.
         for civ in self.civilizations:
             s = self.stacks.create_stack(owner_id=civ.id, tile=civ.capital_coords)
-            self.stacks.add_unit_to_stack(s.uid, "infantry")
+            self.stacks.add_unit_to_stack(s.uid, "light_infantry")
 
     def get_polygon_data(self, polygon_2d_coords):
         return self.graph.nodes.get(polygon_2d_coords)

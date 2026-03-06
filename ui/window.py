@@ -1,6 +1,7 @@
+# ui/window.py
+
 from PySide6.QtWidgets import QMainWindow, QWidget, QHBoxLayout
 from ui.sidebar import SideBar
-# Antes era: from ui.scene3d import Scene3D
 from ui.scene import SceneWidget # 1. Mude o import
 
 class MainWindow(QMainWindow):
